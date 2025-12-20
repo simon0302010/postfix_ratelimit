@@ -29,7 +29,7 @@ impl Config {
                 Ok(cfg)
             }
             Err(_) => {
-                warn!("could not find config file. using defaults.");
+                warn!("Could not find configuration file. Using default values.");
                 Ok(Config::default())
             }
         }
