@@ -1,0 +1,8 @@
+[package]
+name = "postfix_ratelimit"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+signal-hook = "0.3"
+rusqlite = "0.38"
