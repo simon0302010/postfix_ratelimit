@@ -3,11 +3,14 @@ use crate::config::Config;
 
 use std::{
     error::Error,
+    process::exit,
     sync::mpsc::{self, Receiver, Sender},
     thread,
+    time::Duration,
 };
 
 use log::{error, info};
+use rusqlite::Connection;
 use signal_hook::{consts::TERM_SIGNALS, iterator::Signals};
 use simple_logger::SimpleLogger;
 
@@ -15,9 +18,9 @@ const CONFIG_PATH: &str = "config.toml";
 
 fn main() -> Result<(), Box<dyn Error>> {
     // init logger
-    if SimpleLogger::new().init().is_err() {
-        eprintln!("failed to initialize logger.")
-    }
+    SimpleLogger::new().init().unwrap_or_else(|_| {
+        eprintln!("failed to initialize logger");
+    });
 
     // channel for stop signal
     let (stop_send, stop_rec): (Sender<()>, Receiver<()>) = mpsc::channel();
@@ -26,10 +29,38 @@ fn main() -> Result<(), Box<dyn Error>> {
     spawn_signal_thread(stop_send)?;
 
     // load config
-    let config = Config::from_file(CONFIG_PATH)?;
+    let config = match Config::from_file(CONFIG_PATH) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            error!("failed to parse configuration file\n{}", e);
+            exit(1);
+        }
+    };
+
+    // load db from disk into memory
+    let mut db_disk = Connection::open(&config.db_file).unwrap_or_else(|e| {
+        error!("failed to create or open database: {}", e);
+        exit(1);
+    });
+    let mut db_mem = Connection::open_in_memory().unwrap_or_else(|e| {
+        error!("failed to create in-memory database: {}", e);
+        exit(1);
+    });
+
+    // creates backup
+    backup_db(&db_disk, &mut db_mem).unwrap_or_else(|e| {
+        error!("failed to load database into memory: {}", e);
+        exit(1);
+    });
 
     // waits for a message from the thread
     stop_rec.recv().expect("failed to receive stop signal");
+
+    // write db back to disk
+    backup_db(&db_mem, &mut db_disk).unwrap_or_else(|e| {
+        error!("failed to write database to disk: {}", e);
+        exit(1);
+    });
 
     Ok(())
 }
@@ -49,4 +80,14 @@ fn spawn_signal_thread(sender: Sender<()>) -> Result<(), Box<dyn Error>> {
     });
 
     Ok(())
+}
+
+/// backs-up a database
+fn backup_db(from: &Connection, to: &mut Connection) -> Result<(), rusqlite::Error> {
+    rusqlite::backup::Backup::new(from, to)
+        .unwrap_or_else(|e| {
+            error!("failed to create backup for database: {}", e);
+            exit(1);
+        })
+        .run_to_completion(5, Duration::from_millis(250), None)
 }
