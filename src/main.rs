@@ -55,6 +55,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         exit(1);
     });
 
+    // create main table
+    create_table(&db_mem).unwrap_or_else(|e| {
+        error!("Failed to create table: {}", e);
+        exit(1);
+    });
+
     // start limiter and get the db connection back after it received the stop signal
     let limiter = Limiter::new(db_mem, stop_rec);
     let db_mem = limiter.run();
@@ -93,4 +99,15 @@ fn backup_db(from: &Connection, to: &mut Connection) -> Result<(), rusqlite::Err
             exit(1);
         })
         .run_to_completion(5, Duration::from_millis(250), None)
+}
+
+fn create_table(conn: &Connection) -> Result<usize, rusqlite::Error> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS emails (
+            address TEXT PRIMARY KEY NOT NULL,
+            count INTEGER DEFAULT 0,
+            time INTEGER DEFAULT 0
+        )",
+        [],
+    )
 }
