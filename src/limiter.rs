@@ -1,19 +1,29 @@
-use std::{sync::mpsc::Receiver, thread::sleep, time::Duration};
+use std::time::Duration;
 
+use indymilter::{Callbacks, Context, Status};
 use log::warn;
 use rusqlite::{Connection, params};
+use tokio::sync::mpsc::Receiver;
+use tokio::time::sleep;
 
 pub struct Limiter {
     conn: Connection,
     stop_rec: Receiver<()>,
+    interval: u64,
+    limit: u64,
 }
 
 impl Limiter {
-    pub fn new(db: Connection, stop_rec: Receiver<()>) -> Self {
-        Self { conn: db, stop_rec }
+    pub fn new(db: Connection, stop_rec: Receiver<()>, interval: u64, limit: u64) -> Self {
+        Self {
+            conn: db,
+            stop_rec,
+            interval,
+            limit,
+        }
     }
 
-    pub fn run(self) -> Connection {
+    pub async fn run(mut self, socket: String) -> Connection {
         let email = "example@example.com";
         let count = 1;
 
@@ -30,7 +40,7 @@ impl Limiter {
 
         // main loop
         while self.stop_rec.try_recv().is_err() {
-            sleep(Duration::from_millis(16));
+            sleep(Duration::from_millis(16)).await;
         }
 
         self.conn
