@@ -63,7 +63,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // start limiter and get the db connection back after it received the stop signal
     let limiter = Limiter::new(db_mem, stop_rec);
-    let db_mem = limiter.run();
+    let db_mem = limiter.run(config.socket);
 
     // write db back to disk
     backup_db(&db_mem, &mut db_disk).unwrap_or_else(|e| {

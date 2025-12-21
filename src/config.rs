@@ -10,7 +10,9 @@ pub struct Config {
     /// interval in minutes
     pub interval: u64,
     /// how many emails are allowed per interval
-    pub count: u64,
+    pub limit: u64,
+    /// socket on which to listen
+    pub socket: String,
 }
 
 impl Default for Config {
@@ -19,7 +21,8 @@ impl Default for Config {
         Self {
             db_file: "db.sqlite".to_string(),
             interval: 1440, // 24h
-            count: 500,
+            limit: 500,
+            socket: "inet:localhost:3000".to_string(),
         }
     }
 }
