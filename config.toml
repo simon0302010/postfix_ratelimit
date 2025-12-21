@@ -1,3 +1,2 @@
 db_file = "database.db"
-limit = 500
-interval = 60
+limit = 5
