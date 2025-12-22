@@ -153,17 +153,24 @@ impl Limiter {
                 data.recipients,
                 data.ip
             );
+            let Some(sender) = data.sender.clone() else {
+                return Status::Continue;
+            };
+            let count = if data.recipients.len() > 1 {
+                data.recipients.len() as u64
+            } else {
+                1
+            };
 
-            return Status::Accept;
+            if self.allowed(sender, count).await {
+                Status::Accept
+            } else {
+                Status::Reject
+            }
         } else {
-            warn!("No connection data found in EOM context. Cannot process email.")
+            warn!("No connection data found in EOM context. Cannot process email.");
+            Status::Continue
         }
-
-        // first check if time is over for address and reset if needed
-        // then update_count and check if it went over the budget
-        // log it and reject
-
-        Status::Continue
     }
 
     async fn email_regex(&self, email: Option<String>) -> Option<String> {
@@ -178,6 +185,16 @@ impl Limiter {
             return Some(matched.as_str().to_string());
         }
         None
+    }
+
+    /// TODO: take host into account
+    async fn allowed(&self, email: String, count: u64) -> bool {
+        reset_row(self.conn.clone(), email.clone(), self.interval).await;
+        if update_count(self.conn.clone(), email, count).await > self.limit {
+            false
+        } else {
+            true
+        }
     }
 }
 
@@ -206,16 +223,17 @@ async fn reset_row(conn: Connection, address: String, interval: u64) {
     }
 }
 
-/// updates count in database
-async fn update_count(conn: Connection, address: String, count: u64) {
+/// updates count in database. returns the updated count
+async fn update_count(conn: Connection, address: String, count: u64) -> u64 {
+    let addr_q = address.clone();
     if conn
         .call(move |c| {
             c.execute(
-                "INSERT INTO emails (address, count)
-                VALUES (?1, ?2)
+                "INSERT INTO emails (address, count, time)
+                VALUES (?1, ?2, strftime('%s', 'now'))
                 ON CONFLICT(address)
                 DO UPDATE SET count = count + ?2;",
-                rusqlite::params![address, count],
+                rusqlite::params![addr_q, count],
             )
         })
         .await
@@ -223,11 +241,15 @@ async fn update_count(conn: Connection, address: String, count: u64) {
     {
         warn!("Failed to insert values into database");
     }
+
+    if let Some(data) = find_email(conn, address).await {
+        return data.count;
+    } else {
+        count // maybe changing later
+    }
 }
 
-async fn find_email(conn: Connection, address: &str) -> Option<LimitData> {
-    let address = address.to_string();
-
+async fn find_email(conn: Connection, address: String) -> Option<LimitData> {
     conn.call(move |c| {
         let result = c.query_row(
             "SELECT count, time FROM emails WHERE address = ?1",
