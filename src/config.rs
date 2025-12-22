@@ -11,6 +11,8 @@ pub struct Config {
     pub interval: u64,
     /// how many emails are allowed per interval
     pub limit: u64,
+    /// socket on which to run the milter
+    pub socket: String,
 }
 
 impl Default for Config {
@@ -20,6 +22,7 @@ impl Default for Config {
             db_file: "db.sqlite".to_string(),
             interval: 1440, // 24h
             limit: 500,
+            socket: "inet:3000@localhost".to_string(),
         }
     }
 }

@@ -2,9 +2,9 @@ use std::time::Duration;
 
 use indymilter::{Callbacks, Context, Status};
 use log::warn;
-use rusqlite::{Connection, params};
 use tokio::sync::mpsc::Receiver;
 use tokio::time::sleep;
+use tokio_rusqlite::Connection;
 
 pub struct Limiter {
     conn: Connection,
@@ -29,10 +29,13 @@ impl Limiter {
 
         if self
             .conn
-            .execute(
-                "INSERT INTO emails (address, count) VALUES (?1, ?2)",
-                params![email, count],
-            )
+            .call(move |c| {
+                c.execute(
+                    "INSERT INTO emails (address, count) VALUES (?1, ?2)",
+                    rusqlite::params![email, count],
+                )
+            })
+            .await
             .is_err()
         {
             warn!("failed to insert values into database");
@@ -45,22 +48,4 @@ impl Limiter {
 
         self.conn
     }
-}
-
-#[on_mail(handle_mail)]
-fn handle_email(_: Context<()>, from: Vec<&str>) -> Status {
-    info!("Handling outgoing email from {:?}", from.first());
-    Status::Continue
-}
-
-#[on_rcpt(handle_rcpt)]
-fn handle_rec(_: Context<()>, recipient: Vec<&str>) -> Status {
-    info!(
-        "Handling recipient {:?}",
-        recipient
-            .iter()
-            .filter(|r| !r.trim().is_empty())
-            .collect::<Vec<&&str>>()
-    );
-    Status::Continue
 }

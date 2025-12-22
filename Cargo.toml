@@ -5,15 +5,11 @@ edition = "2024"
 
 [dependencies]
 signal-hook = "0.3"
-rusqlite = { version = "0.38", features = ["backup"] }
+rusqlite = { version = "0.37", features = ["backup"] }
 toml = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 simple_logger = "5.1"
-<<<<<<< HEAD
-milter = "0.2"
-libc = "0.2"
-=======
 indymilter = "0.3"
 tokio = { version = "1.48", features = ["macros", "rt-multi-thread"] }
->>>>>>> parent of 3a02c5c (Revert "async using tokio")
+tokio-rusqlite = "0.7"

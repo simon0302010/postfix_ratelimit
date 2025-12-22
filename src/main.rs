@@ -3,24 +3,18 @@ mod limiter;
 
 use crate::{config::Config, limiter::Limiter};
 
-use std::{env, error::Error, process::exit, time::Duration};
+use std::{error::Error, path::PathBuf, process::exit, time::Duration};
 
 use log::{error, info};
-use rusqlite::Connection;
 use signal_hook::{consts::TERM_SIGNALS, iterator::Signals};
 use simple_logger::SimpleLogger;
 use tokio::sync::mpsc::{self, Receiver, Sender};
+use tokio_rusqlite::Connection;
 
 const CONFIG_PATH: &str = "config.toml";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let args = env::args().collect::<Vec<_>>();
-    if args.len() != 2 {
-        eprintln!("Usage: {} <socket>", args[0]);
-        exit(1);
-    }
-
     // init logger
     SimpleLogger::new().init().unwrap_or_else(|_| {
         eprintln!("Failed to initialize logger");
@@ -42,36 +36,37 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     // load db from disk into memory
-    let mut db_disk = Connection::open(&config.db_file).unwrap_or_else(|e| {
-        error!("Failed to create or open database: {}", e);
-        exit(1);
-    });
-    let mut db_mem = Connection::open_in_memory().unwrap_or_else(|e| {
-        error!("Failed to create in-memory database: {}", e);
-        exit(1);
-    });
+    let db_mem = load_db(PathBuf::from(&config.db_file))
+        .await
+        .unwrap_or_else(|e| {
+            error!("Failed to load DB: {}", e);
+            exit(1);
+        });
 
-    // creates backup
-    backup_db(&db_disk, &mut db_mem).unwrap_or_else(|e| {
-        error!("Failed to load database into memory: {}", e);
-        exit(1);
-    });
-
-    // create main table
-    create_table(&db_mem).unwrap_or_else(|e| {
-        error!("Failed to create table: {}", e);
-        exit(1);
-    });
+    db_mem
+        .call(|conn| {
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS emails (
+                address TEXT PRIMARY KEY NOT NULL,
+                count INTEGER DEFAULT 0,
+                time INTEGER DEFAULT 0
+            )",
+                [],
+            )
+        })
+        .await?;
 
     // start limiter and get the db connection back after it received the stop signal
     let limiter = Limiter::new(db_mem, stop_rec, config.interval, config.limit);
-    let db_mem = limiter.run(args[1].clone()).await;
+    let db_mem = limiter.run(config.socket).await;
 
     // write db back to disk
-    backup_db(&db_mem, &mut db_disk).unwrap_or_else(|e| {
-        error!("Failed to write database to disk: {}", e);
-        exit(1);
-    });
+    save_db(&db_mem, PathBuf::from(&config.db_file))
+        .await
+        .unwrap_or_else(|e| {
+            error!("Failed to save DB: {}", e);
+            exit(1);
+        });
 
     Ok(())
 }
@@ -79,37 +74,44 @@ async fn main() -> Result<(), Box<dyn Error>> {
 /// spawns a thread that receives termination signals and sends them through a channel
 fn spawn_signal_thread(sender: Sender<()>) -> Result<(), Box<dyn Error>> {
     let mut signals = Signals::new(TERM_SIGNALS)?;
-
     std::thread::spawn(move || {
         for sig in signals.forever() {
             info!("Received signal {:?}", sig);
             if sender.blocking_send(()).is_err() {
-                error!("Failed to send stop signal");
                 break;
             }
         }
     });
-
     Ok(())
 }
 
-/// backs-up a database
-fn backup_db(from: &Connection, to: &mut Connection) -> Result<(), rusqlite::Error> {
-    rusqlite::backup::Backup::new(from, to)
-        .unwrap_or_else(|e| {
-            error!("Failed to create backup for database: {}", e);
-            exit(1);
+async fn load_db(disk_path: PathBuf) -> Result<Connection, Box<dyn Error>> {
+    let db_mem = Connection::open_in_memory().await?;
+
+    if !disk_path.exists() {
+        return Ok(db_mem);
+    }
+
+    db_mem
+        .call(move |conn_mem| {
+            let conn_disk = rusqlite::Connection::open(&disk_path)?;
+            let backup = rusqlite::backup::Backup::new(&conn_disk, conn_mem)?;
+            backup.run_to_completion(5, Duration::from_millis(250), None)
         })
-        .run_to_completion(5, Duration::from_millis(250), None)
+        .await
+        .expect("Failed to load database in memory");
+
+    Ok(db_mem)
 }
 
-fn create_table(conn: &Connection) -> Result<usize, rusqlite::Error> {
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS emails (
-            address TEXT PRIMARY KEY NOT NULL,
-            count INTEGER DEFAULT 0,
-            time INTEGER DEFAULT 0
-        )",
-        [],
-    )
+async fn save_db(db_mem: &Connection, disk_path: PathBuf) -> Result<(), Box<dyn Error>> {
+    db_mem
+        .call(move |conn_mem| {
+            let mut conn_disk = rusqlite::Connection::open(&disk_path)?;
+            let backup = rusqlite::backup::Backup::new(conn_mem, &mut conn_disk)?;
+            backup.run_to_completion(5, Duration::from_millis(250), None)
+        })
+        .await
+        .expect("Failed to save database to disk");
+    Ok(())
 }
