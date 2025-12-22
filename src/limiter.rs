@@ -10,12 +10,12 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc::Receiver;
 use tokio_rusqlite::Connection;
 
+use crate::config::Config;
+
 #[derive(Clone)]
 pub struct Limiter {
     conn: Connection,
-    interval: u64,
-    limit: u64,
-    max_recipients: u64,
+    config: Config,
     mail_regex: Regex,
 }
 
@@ -23,18 +23,16 @@ pub struct Limiter {
 struct ConnectionData {
     sender: Option<String>,
     recipients: Vec<String>,
-    ip: String,
+    host: String,
 }
 
 impl Limiter {
-    pub fn new(db: Connection, interval: u64, limit: u64, max_recipients: u64) -> Self {
+    pub fn new(db: Connection, config: Config) -> Self {
         let mail_regex = Regex::new(r#"(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])"#).unwrap();
 
         Self {
             conn: db,
-            interval,
-            limit,
-            max_recipients,
+            config,
             mail_regex,
         }
     }
@@ -90,7 +88,7 @@ impl Limiter {
         cx: &mut Context<ConnectionData>,
         socket_info: SocketInfo,
     ) -> Status {
-        let ip = match socket_info {
+        let host = match socket_info {
             SocketInfo::Inet(addr) => addr.ip().to_string(),
             SocketInfo::Unix(sock) => sock.to_string_lossy().to_string(),
             _ => "Unknown".to_string(),
@@ -99,7 +97,7 @@ impl Limiter {
         let _ = cx.data.replace(ConnectionData {
             sender: None,
             recipients: Vec::new(),
-            ip,
+            host,
         });
 
         Status::Continue
@@ -119,11 +117,13 @@ impl Limiter {
                 None => {}
             }
 
-            if self.max_recipients != 0 && data.recipients.len() as u64 > self.max_recipients {
+            if self.config.max_recipients != 0
+                && data.recipients.len() as u64 > self.config.max_recipients
+            {
                 warn!(
                     "Rejected email from {} due to exceeding max recipients ({})",
                     data.sender.clone().unwrap_or_else(|| "Unknown".to_string()),
-                    self.max_recipients
+                    self.config.max_recipients
                 );
                 return Status::Reject;
             }
@@ -147,23 +147,22 @@ impl Limiter {
 
     async fn handle_eom(&self, cx: &mut EomContext<ConnectionData>) -> Status {
         if let Some(data) = cx.data.as_ref() {
-            info!(
+            /*info!(
                 "Received email from {:?} to {:?} from server {}",
                 data.sender.clone().unwrap_or_default(),
                 data.recipients,
                 data.ip
-            );
+            );*/
             let Some(sender) = data.sender.clone() else {
                 return Status::Continue;
             };
-            let count = if data.recipients.len() > 1 {
+            let count = if data.recipients.len() > 1 && self.config.count_recipients {
                 data.recipients.len() as u64
             } else {
                 1
             };
 
-            let sender_copy = sender.clone();
-            let (allowed, emails) = self.allowed(sender_copy, count).await;
+            let (allowed, emails) = self.allowed(sender.clone(), count).await;
 
             if allowed {
                 Status::Accept
@@ -171,7 +170,7 @@ impl Limiter {
                 warn!(
                     "Rejected email from {} due to rate limit being reached ({} over limit)",
                     sender,
-                    emails - self.limit
+                    emails - self.config.limit
                 );
                 Status::Reject
             }
@@ -199,8 +198,8 @@ impl Limiter {
     /// check whether to allow email
     /// returns (allowed: bool, email count: u64)
     async fn allowed(&self, email: String, count: u64) -> (bool, u64) {
-        let interval_seconds = self.interval * 60;
-        let limit = self.limit;
+        let interval_seconds = self.config.interval * 60;
+        let limit = self.config.limit;
 
         let current_count = self
             .conn

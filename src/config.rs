@@ -3,7 +3,7 @@ use std::{error::Error, fs};
 use log::warn;
 use serde::Deserialize;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct Config {
     /// filepath to database file
     pub db_file: String,
@@ -15,6 +15,8 @@ pub struct Config {
     pub socket: String,
     /// maximum amount of recipients allowed per email
     pub max_recipients: u64,
+    /// makes more recipients use the limit faster
+    pub count_recipients: bool,
 }
 
 impl Default for Config {
@@ -26,6 +28,7 @@ impl Default for Config {
             limit: 500,
             socket: "127.0.0.1:3000".to_string(),
             max_recipients: 50,
+            count_recipients: true,
         }
     }
 }
