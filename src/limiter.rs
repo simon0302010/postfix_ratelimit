@@ -4,6 +4,7 @@ use std::process::exit;
 
 use indymilter::{Callbacks, Context, EomContext, Macros, SocketInfo, Status};
 use log::{error, info, warn};
+use regex::Regex;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc::Receiver;
 use tokio_rusqlite::Connection;
@@ -14,6 +15,7 @@ pub struct Limiter {
     interval: u64,
     limit: u64,
     max_recipients: u64,
+    mail_regex: Regex,
 }
 
 #[derive(Default)]
@@ -25,11 +27,14 @@ struct ConnectionData {
 
 impl Limiter {
     pub fn new(db: Connection, interval: u64, limit: u64, max_recipients: u64) -> Self {
+        let mail_regex = Regex::new(r#"(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])"#).unwrap();
+
         Self {
             conn: db,
             interval,
             limit,
             max_recipients,
+            mail_regex,
         }
     }
 
@@ -105,13 +110,17 @@ impl Limiter {
 
     /// handles rcpt
     async fn handle_rcpt(&self, cx: &mut Context<ConnectionData>, args: Vec<CString>) -> Status {
-        let current_recipient = args
-            .first()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_default();
+        let current_recipient = self
+            .find_email(args.first().map(|s| s.to_string_lossy().to_string()))
+            .await;
 
         if let Some(data) = cx.data.as_mut() {
-            data.recipients.push(current_recipient);
+            match current_recipient {
+                Some(rec) => {
+                    data.recipients.push(rec);
+                }
+                None => {}
+            }
 
             if self.max_recipients != 0 && data.recipients.len() as u64 > self.max_recipients {
                 return Status::Reject;
@@ -123,7 +132,9 @@ impl Limiter {
 
     /// handles mail
     async fn handle_mail(&self, cx: &mut Context<ConnectionData>, args: Vec<CString>) -> Status {
-        let sender = args.first().map(|s| s.to_string_lossy().to_string());
+        let sender = self
+            .find_email(args.first().map(|s| s.to_string_lossy().to_string()))
+            .await;
 
         if let Some(data) = cx.data.as_mut() {
             data.sender = sender;
@@ -136,7 +147,7 @@ impl Limiter {
         if let Some(data) = cx.data.as_ref() {
             info!(
                 "Received Email from {:?} to {:?} from server {}",
-                data.sender.clone().unwrap_or("Unknown".to_string()),
+                data.sender.clone().unwrap_or_default(),
                 data.recipients,
                 data.ip
             );
@@ -147,6 +158,20 @@ impl Limiter {
         }
 
         Status::Continue
+    }
+
+    async fn find_email(&self, email: Option<String>) -> Option<String> {
+        let email = match email {
+            Some(e) => e,
+            None => return None,
+        };
+
+        if let Some(captures) = self.mail_regex.captures(&email)
+            && let Some(matched) = captures.get(0)
+        {
+            return Some(matched.as_str().to_string());
+        }
+        None
     }
 }
 
