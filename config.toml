@@ -1,4 +1,4 @@
 db_file = "database.db"
 limit = 20
 interval = 60
-socket = "inet:4666@localhost"
+socket = "127.0.0.1:3000"
