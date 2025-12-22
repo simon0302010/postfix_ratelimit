@@ -3,29 +3,31 @@ mod limiter;
 
 use crate::{config::Config, limiter::Limiter};
 
-use std::{
-    error::Error,
-    process::exit,
-    sync::mpsc::{self, Receiver, Sender},
-    thread,
-    time::Duration,
-};
+use std::{env, error::Error, process::exit, time::Duration};
 
 use log::{error, info};
 use rusqlite::Connection;
 use signal_hook::{consts::TERM_SIGNALS, iterator::Signals};
 use simple_logger::SimpleLogger;
+use tokio::sync::mpsc::{self, Receiver, Sender};
 
 const CONFIG_PATH: &str = "config.toml";
 
-fn main() -> Result<(), Box<dyn Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+    let args = env::args().collect::<Vec<_>>();
+    if args.len() != 2 {
+        eprintln!("Usage: {} <socket>", args[0]);
+        exit(1);
+    }
+
     // init logger
     SimpleLogger::new().init().unwrap_or_else(|_| {
         eprintln!("Failed to initialize logger");
     });
 
     // channel for stop signal
-    let (stop_send, stop_rec): (Sender<()>, Receiver<()>) = mpsc::channel();
+    let (stop_send, stop_rec): (Sender<()>, Receiver<()>) = mpsc::channel(1);
 
     // spawns the thread
     spawn_signal_thread(stop_send)?;
@@ -62,8 +64,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     });
 
     // start limiter and get the db connection back after it received the stop signal
-    let limiter = Limiter::new(db_mem, stop_rec);
-    let db_mem = limiter.run(config.socket);
+    let limiter = Limiter::new(db_mem, stop_rec, config.interval, config.limit);
+    let db_mem = limiter.run(args[1].clone()).await;
 
     // write db back to disk
     backup_db(&db_mem, &mut db_disk).unwrap_or_else(|e| {
@@ -78,10 +80,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 fn spawn_signal_thread(sender: Sender<()>) -> Result<(), Box<dyn Error>> {
     let mut signals = Signals::new(TERM_SIGNALS)?;
 
-    thread::spawn(move || {
+    std::thread::spawn(move || {
         for sig in signals.forever() {
             info!("Received signal {:?}", sig);
-            if sender.send(()).is_err() {
+            if sender.blocking_send(()).is_err() {
                 error!("Failed to send stop signal");
                 break;
             }

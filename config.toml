@@ -1,4 +1,9 @@
 db_file = "database.db"
+<<<<<<< HEAD
 limit = 20
 interval = 60
 socket = "inet:4666@localhost"
+=======
+limit = 500
+interval = 60
+>>>>>>> parent of 3a02c5c (Revert "async using tokio")

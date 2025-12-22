@@ -1,31 +1,47 @@
-use std::net::SocketAddr;
-use std::thread;
-use std::{process::exit, sync::mpsc::Receiver, thread::sleep, time::Duration};
+use std::time::Duration;
 
-use log::{error, info};
-use milter::{Context, Milter, Status, on_mail, on_rcpt};
-use rusqlite::Connection;
+use indymilter::{Callbacks, Context, Status};
+use log::warn;
+use rusqlite::{Connection, params};
+use tokio::sync::mpsc::Receiver;
+use tokio::time::sleep;
 
 pub struct Limiter {
     conn: Connection,
     stop_rec: Receiver<()>,
+    interval: u64,
+    limit: u64,
 }
 
 impl Limiter {
-    pub fn new(db: Connection, stop_rec: Receiver<()>) -> Self {
-        Self { conn: db, stop_rec }
+    pub fn new(db: Connection, stop_rec: Receiver<()>, interval: u64, limit: u64) -> Self {
+        Self {
+            conn: db,
+            stop_rec,
+            interval,
+            limit,
+        }
     }
 
-    pub fn run(self, socket: String) -> Connection {
-        Milter::new(&socket)
-            .name("Ratelimit")
-            .on_mail(handle_mail)
-            .on_rcpt(handle_rcpt)
-            .run()
-            .unwrap_or_else(|e| {
-                error!("Milter execution failed: {}", e);
-                exit(1);
-            });
+    pub async fn run(mut self, socket: String) -> Connection {
+        let email = "example@example.com";
+        let count = 1;
+
+        if self
+            .conn
+            .execute(
+                "INSERT INTO emails (address, count) VALUES (?1, ?2)",
+                params![email, count],
+            )
+            .is_err()
+        {
+            warn!("failed to insert values into database");
+        }
+
+        // main loop
+        while self.stop_rec.try_recv().is_err() {
+            sleep(Duration::from_millis(16)).await;
+        }
 
         self.conn
     }
