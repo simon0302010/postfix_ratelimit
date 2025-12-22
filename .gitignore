@@ -2,3 +2,5 @@
 wakatime-project
 test.py
 .venv/
+database.db
+config.toml

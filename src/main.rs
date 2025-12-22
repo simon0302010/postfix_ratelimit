@@ -88,10 +88,6 @@ fn spawn_signal_thread(sender: Sender<()>) -> Result<(), Box<dyn Error>> {
 async fn load_db(disk_path: PathBuf) -> Result<Connection, Box<dyn Error>> {
     let db_mem = Connection::open_in_memory().await?;
 
-    if !disk_path.exists() {
-        return Ok(db_mem);
-    }
-
     db_mem
         .call(move |conn_mem| {
             let conn_disk = rusqlite::Connection::open(&disk_path)?;
@@ -99,7 +95,10 @@ async fn load_db(disk_path: PathBuf) -> Result<Connection, Box<dyn Error>> {
             backup.run_to_completion(5, Duration::from_millis(250), None)
         })
         .await
-        .expect("Failed to load database in memory");
+        .unwrap_or_else(|e| {
+            error!("Failed to load database: {}", e);
+            exit(1);
+        });
 
     Ok(db_mem)
 }
@@ -112,6 +111,9 @@ async fn save_db(db_mem: &Connection, disk_path: PathBuf) -> Result<(), Box<dyn 
             backup.run_to_completion(5, Duration::from_millis(250), None)
         })
         .await
-        .expect("Failed to save database to disk");
+        .unwrap_or_else(|e| {
+            error!("Failed to save database to disk: {}", e);
+            exit(1);
+        });
     Ok(())
 }
