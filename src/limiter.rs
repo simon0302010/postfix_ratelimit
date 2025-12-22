@@ -1,10 +1,11 @@
 use std::ffi::CString;
 use std::process::exit;
+use std::u64;
 
 use indymilter::{Callbacks, Context, EomContext, SocketInfo, Status};
 use log::{error, info, warn};
 use regex::Regex;
-use rusqlite::{Params, params};
+use rusqlite::params;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc::Receiver;
 use tokio_rusqlite::Connection;
@@ -23,12 +24,6 @@ struct ConnectionData {
     sender: Option<String>,
     recipients: Vec<String>,
     ip: String,
-}
-
-#[derive(Clone)]
-struct LimitData {
-    count: u64,
-    time: u64,
 }
 
 impl Limiter {
@@ -125,6 +120,11 @@ impl Limiter {
             }
 
             if self.max_recipients != 0 && data.recipients.len() as u64 > self.max_recipients {
+                warn!(
+                    "Rejected email from {} due to exceeding max recipients ({})",
+                    data.sender.clone().unwrap_or_else(|| "Unknown".to_string()),
+                    self.max_recipients
+                );
                 return Status::Reject;
             }
         }
@@ -148,7 +148,7 @@ impl Limiter {
     async fn handle_eom(&self, cx: &mut EomContext<ConnectionData>) -> Status {
         if let Some(data) = cx.data.as_ref() {
             info!(
-                "Received Email from {:?} to {:?} from server {}",
+                "Received email from {:?} to {:?} from server {}",
                 data.sender.clone().unwrap_or_default(),
                 data.recipients,
                 data.ip
@@ -162,9 +162,17 @@ impl Limiter {
                 1
             };
 
-            if self.allowed(sender, count).await {
+            let sender_copy = sender.clone();
+            let (allowed, emails) = self.allowed(sender_copy, count).await;
+
+            if allowed {
                 Status::Accept
             } else {
+                warn!(
+                    "Rejected email from {} due to rate limit being reached ({} over limit)",
+                    sender,
+                    emails - self.limit
+                );
                 Status::Reject
             }
         } else {
@@ -187,82 +195,44 @@ impl Limiter {
         None
     }
 
-    /// TODO: take host into account
-    async fn allowed(&self, email: String, count: u64) -> bool {
-        reset_row(self.conn.clone(), email.clone(), self.interval).await;
-        if update_count(self.conn.clone(), email, count).await > self.limit {
-            false
-        } else {
-            true
-        }
+    // TODO: take host into account
+    /// check whether to allow email
+    /// returns (allowed: bool, email count: u64)
+    async fn allowed(&self, email: String, count: u64) -> (bool, u64) {
+        let interval_seconds = self.interval * 60;
+        let limit = self.limit;
+
+        let current_count = self
+            .conn
+            .call(move |conn| {
+                let tx = conn.transaction()?;
+
+                tx.execute(
+                    "INSERT INTO emails (address, count, time)
+                 VALUES (?1, 0, unixepoch('now'))
+                 ON CONFLICT(address) DO UPDATE SET
+                    count = 0,
+                    time = unixepoch('now')
+                 WHERE (unixepoch('now') - emails.time) > ?2",
+                    params![email, interval_seconds],
+                )?;
+
+                let new_count: u64 = tx.query_row(
+                    "INSERT INTO emails (address, count, time)
+                 VALUES (?1, ?2, unixepoch('now'))
+                 ON CONFLICT(address) DO UPDATE SET
+                    count = emails.count + ?2
+                 RETURNING count",
+                    params![email, count],
+                    |row| row.get(0),
+                )?;
+
+                tx.commit()?;
+                Ok::<u64, tokio_rusqlite::Error>(new_count)
+            })
+            .await
+            .unwrap_or(0);
+
+        (current_count <= limit, current_count)
     }
-}
-
-/// resets the time and count field in db
-async fn reset_row(conn: Connection, address: String, interval: u64) {
-    // converting from minutes to seconds
-    let interval = interval * 60;
-
-    if conn
-        .call(move |c| {
-            c.execute(
-                "INSERT INTO emails (address, count, time)
-            VALUES (?1, 0, strftime('%s','now'))
-            ON CONFLICT(address)
-            DO UPDATE SET
-                time  = excluded.time,
-                count = 0
-            WHERE excluded.time - emails.time > ?2;",
-                params![address, interval],
-            )
-        })
-        .await
-        .is_err()
-    {
-        warn!("Failed to reset row ")
-    }
-}
-
-/// updates count in database. returns the updated count
-async fn update_count(conn: Connection, address: String, count: u64) -> u64 {
-    let addr_q = address.clone();
-    if conn
-        .call(move |c| {
-            c.execute(
-                "INSERT INTO emails (address, count, time)
-                VALUES (?1, ?2, strftime('%s', 'now'))
-                ON CONFLICT(address)
-                DO UPDATE SET count = count + ?2;",
-                rusqlite::params![addr_q, count],
-            )
-        })
-        .await
-        .is_err()
-    {
-        warn!("Failed to insert values into database");
-    }
-
-    if let Some(data) = find_email(conn, address).await {
-        return data.count;
-    } else {
-        count // maybe changing later
-    }
-}
-
-async fn find_email(conn: Connection, address: String) -> Option<LimitData> {
-    conn.call(move |c| {
-        let result = c.query_row(
-            "SELECT count, time FROM emails WHERE address = ?1",
-            rusqlite::params![address],
-            |row| {
-                let count: u64 = row.get(0)?;
-                let time: u64 = row.get(1)?;
-                Ok(LimitData { count, time })
-            },
-        );
-
-        Ok::<std::option::Option<LimitData>, tokio_rusqlite::Error>(result.ok())
-    })
-    .await
-    .unwrap_or(None)
 }
