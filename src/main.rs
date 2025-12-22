@@ -57,7 +57,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .await?;
 
     // start limiter and get the db connection back after it received the stop signal
-    let limiter = Limiter::new(db_mem.clone(), config.interval, config.limit);
+    let limiter = Limiter::new(
+        db_mem.clone(),
+        config.interval,
+        config.limit,
+        config.max_recipients,
+    );
     limiter.run(config.socket, stop_rec).await;
 
     // write db back to disk

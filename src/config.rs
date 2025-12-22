@@ -13,6 +13,8 @@ pub struct Config {
     pub limit: u64,
     /// socket on which to run the milter
     pub socket: String,
+    /// maximum amount of recipients allowed per email
+    pub max_recipients: u64,
 }
 
 impl Default for Config {
@@ -22,7 +24,8 @@ impl Default for Config {
             db_file: "db.sqlite".to_string(),
             interval: 1440, // 24h
             limit: 500,
-            socket: "inet:3000@localhost".to_string(),
+            socket: "127.0.0.1:3000".to_string(),
+            max_recipients: 50,
         }
     }
 }

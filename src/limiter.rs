@@ -1,7 +1,8 @@
-use std::ffi::CString;
+use std::borrow::Borrow;
+use std::ffi::{CStr, CString};
 use std::process::exit;
 
-use indymilter::{Callbacks, Context, Macros, SocketInfo, Status};
+use indymilter::{Callbacks, Context, EomContext, Macros, SocketInfo, Status};
 use log::{error, info, warn};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc::Receiver;
@@ -12,14 +13,23 @@ pub struct Limiter {
     conn: Connection,
     interval: u64,
     limit: u64,
+    max_recipients: u64,
+}
+
+#[derive(Default)]
+struct ConnectionData {
+    sender: Option<String>,
+    recipients: Vec<String>,
+    ip: String,
 }
 
 impl Limiter {
-    pub fn new(db: Connection, interval: u64, limit: u64) -> Self {
+    pub fn new(db: Connection, interval: u64, limit: u64, max_recipients: u64) -> Self {
         Self {
             conn: db,
             interval,
             limit,
+            max_recipients,
         }
     }
 
@@ -36,11 +46,13 @@ impl Limiter {
         let limiter_connect = self.clone();
         let limiter_mail = self.clone();
         let limiter_rcpt = self.clone();
+        let limiter_eom = self.clone();
 
+        // define callbacks
         let callbacks = Callbacks::new()
-            .on_connect(move |cx, hostname, socket_info| {
+            .on_connect(move |cx, _, socket_info| {
                 let limiter = limiter_connect.clone();
-                Box::pin(async move { limiter.handle_connect(cx, hostname, socket_info).await })
+                Box::pin(async move { limiter.handle_connect(cx, socket_info).await })
             })
             .on_mail(move |cx, args| {
                 let limiter = limiter_mail.clone();
@@ -49,6 +61,10 @@ impl Limiter {
             .on_rcpt(move |cx, args| {
                 let limiter = limiter_rcpt.clone();
                 Box::pin(async move { limiter.handle_rcpt(cx, args).await })
+            })
+            .on_eom(move |cx| {
+                let limiter = limiter_eom.clone();
+                Box::pin(async move { limiter.handle_eom(cx).await })
             });
 
         let config = Default::default();
@@ -67,42 +83,71 @@ impl Limiter {
             })
     }
 
-    /// on new connection
     async fn handle_connect(
         &self,
-        cx: &mut Context<()>,
-        hostname: CString,
+        cx: &mut Context<ConnectionData>,
         socket_info: SocketInfo,
     ) -> Status {
-        println!("CONNECT");
-        println!("  hostname: {hostname:?}");
-        println!("  socket_info: {socket_info:?}");
-        print_macros(&cx.macros);
+        let ip = match socket_info {
+            SocketInfo::Inet(addr) => addr.ip().to_string(),
+            SocketInfo::Unix(sock) => sock.to_string_lossy().to_string(),
+            _ => "Unknown".to_string(),
+        };
+
+        let _ = cx.data.replace(ConnectionData {
+            sender: None,
+            recipients: Vec::new(),
+            ip,
+        });
 
         Status::Continue
     }
 
     /// handles rcpt
-    async fn handle_rcpt(&self, cx: &mut Context<()>, args: Vec<CString>) -> Status {
-        println!("RCPT");
-        println!("  args: {args:?}");
-        print_macros(&cx.macros);
+    async fn handle_rcpt(&self, cx: &mut Context<ConnectionData>, args: Vec<CString>) -> Status {
+        let current_recipient = args
+            .first()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        if let Some(data) = cx.data.as_mut() {
+            data.recipients.push(current_recipient);
+
+            if self.max_recipients != 0 && data.recipients.len() as u64 > self.max_recipients {
+                return Status::Reject;
+            }
+        }
 
         Status::Continue
     }
 
     /// handles mail
-    async fn handle_mail(&self, cx: &mut Context<()>, args: Vec<CString>) -> Status {
-        println!("MAIL");
-        println!("  args: {args:?}");
-        print_macros(&cx.macros);
+    async fn handle_mail(&self, cx: &mut Context<ConnectionData>, args: Vec<CString>) -> Status {
+        let sender = args.first().map(|s| s.to_string_lossy().to_string());
+
+        if let Some(data) = cx.data.as_mut() {
+            data.sender = sender;
+        }
 
         Status::Continue
     }
-}
 
-fn print_macros(macros: &Macros) {
-    println!("  macros: {:?}", macros.to_hash_map());
+    async fn handle_eom(&self, cx: &mut EomContext<ConnectionData>) -> Status {
+        if let Some(data) = cx.data.as_ref() {
+            info!(
+                "Received Email from {:?} to {:?} from server {}",
+                data.sender.clone().unwrap_or("Unknown".to_string()),
+                data.recipients,
+                data.ip
+            );
+
+            return Status::Accept;
+        } else {
+            warn!("No connection data found in EOM context. Cannot process email.")
+        }
+
+        Status::Continue
+    }
 }
 
 /// test entry into db
