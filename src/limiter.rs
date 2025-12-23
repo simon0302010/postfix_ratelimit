@@ -22,7 +22,7 @@ pub struct Limiter {
     mail_regex: Regex,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct ConnectionData {
     sender: Option<String>,
     recipients: Vec<String>,
@@ -192,8 +192,9 @@ impl Limiter {
                 Status::Accept
             } else {
                 warn!(
-                    "Rejected email from {} due to rate limit being reached ({} over limit)",
+                    "Rejected email from {} ({}) due to rate limit being reached ({} over limit)",
                     sender,
+                    data.host,
                     emails - self.config.limit
                 );
                 Status::Reject
@@ -221,9 +222,10 @@ impl Limiter {
     // TODO: take host into account
     /// check whether to allow email
     /// returns (allowed: bool, email count: u64)
-    async fn allowed(&self, email: String, count: u64) -> (bool, u64) {
+    async fn allowed(&self, email: String, host: String, count: u64) -> (bool, u64) {
         let interval_seconds = self.config.interval * 60;
         let limit = self.config.limit;
+        let per_host = self.config.per_host;
 
         let current_count = self
             .conn
@@ -233,24 +235,41 @@ impl Limiter {
                 // TODO: clean up old entries
 
                 tx.execute(
-                    "INSERT INTO emails (address, count, time)
-                 VALUES (?1, 0, unixepoch('now'))
-                 ON CONFLICT(address) DO UPDATE SET
-                    count = 0,
-                    time = unixepoch('now')
-                 WHERE (unixepoch('now') - emails.time) > ?2",
-                    params![email, interval_seconds],
+                    "INSERT INTO emails (address, host, count, time)
+                     VALUES (?1, ?2, 0, unixepoch('now'))
+                     ON CONFLICT(address, host) DO UPDATE SET
+                        count = 0, time = unixepoch('now')
+                     WHERE (unixepoch('now') - emails.time) > ?3",
+                    params![email, host, interval_seconds],
                 )?;
 
-                let new_count: u64 = tx.query_row(
-                    "INSERT INTO emails (address, count, time)
-                 VALUES (?1, ?2, unixepoch('now'))
-                 ON CONFLICT(address) DO UPDATE SET
-                    count = emails.count + ?2
-                 RETURNING count",
-                    params![email, count],
-                    |row| row.get(0),
+                tx.execute(
+                    "INSERT INTO emails (address, host, count, time)
+                 VALUES (?1, ?2, ?3, unixepoch('now'))
+                 ON CONFLICT(address, host) DO UPDATE SET
+                    count = emails.count + ?3",
+                    params![email, host, count],
                 )?;
+
+                let new_count = if per_host {
+                    let mut stmt =
+                        tx.prepare("SELECT count FROM emails WHERE address = ?1 AND host = ?2")?;
+                    let mut rows = stmt.query(params![email, host])?;
+                    if let Some(row) = rows.next()? {
+                        row.get::<_, u64>(0)?
+                    } else {
+                        0
+                    }
+                } else {
+                    let mut stmt =
+                        tx.prepare("SELECT SUM(count) FROM emails WHERE address = ?1")?;
+                    let mut rows = stmt.query(params![email])?;
+                    if let Some(row) = rows.next()? {
+                        row.get::<_, Option<u64>>(0)?.unwrap_or(0)
+                    } else {
+                        0
+                    }
+                };
 
                 tx.commit()?;
                 Ok::<u64, tokio_rusqlite::Error>(new_count)

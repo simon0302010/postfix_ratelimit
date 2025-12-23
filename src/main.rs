@@ -51,7 +51,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .call(|conn| {
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS emails (
-                address TEXT PRIMARY KEY NOT NULL,
+                address TEXT NOT NULL,
+                host TEXT NOT NULL,
                 count INTEGER DEFAULT 0,
                 time INTEGER
             )",

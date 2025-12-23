@@ -17,6 +17,8 @@ pub struct Config {
     pub max_recipients: u64,
     /// makes more recipients use the limit faster
     pub count_recipients: bool,
+    /// one ratelimit per email address not regarding mail server address if disabled
+    pub per_host: bool,
 }
 
 impl Default for Config {
@@ -29,6 +31,7 @@ impl Default for Config {
             socket: "127.0.0.1:3000".to_string(),
             max_recipients: 50,
             count_recipients: true,
+            per_host: false,
         }
     }
 }
