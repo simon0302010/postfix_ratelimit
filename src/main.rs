@@ -54,7 +54,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 address TEXT NOT NULL,
                 host TEXT NOT NULL,
                 count INTEGER DEFAULT 0,
-                time INTEGER
+                time INTEGER,
+                UNIQUE(address, host)
             )",
                 [],
             )

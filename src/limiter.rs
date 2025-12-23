@@ -186,7 +186,7 @@ impl Limiter {
                 1
             };
 
-            let (allowed, emails) = self.allowed(sender.clone(), count).await;
+            let (allowed, emails) = self.allowed(sender.clone(), data.host.clone(), count).await;
 
             if allowed {
                 Status::Accept
