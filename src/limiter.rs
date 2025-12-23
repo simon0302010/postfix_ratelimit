@@ -1,6 +1,8 @@
 use std::ffi::CString;
-use std::process::exit;
-use std::u64;
+use std::os::unix::process::CommandExt;
+use std::path::PathBuf;
+use std::process::{Command, exit};
+use std::{env, u64};
 
 use indymilter::{Callbacks, Context, EomContext, SocketInfo, Status};
 use log::{error, info, warn};
@@ -11,6 +13,7 @@ use tokio::sync::mpsc::Receiver;
 use tokio_rusqlite::Connection;
 
 use crate::config::Config;
+use crate::{LimiterSignals, save_db};
 
 #[derive(Clone)]
 pub struct Limiter {
@@ -37,7 +40,7 @@ impl Limiter {
         }
     }
 
-    pub async fn run(&self, socket: String, mut stop_rec: Receiver<()>) {
+    pub async fn run(&self, socket: String, mut stop_rec: Receiver<LimiterSignals>) {
         let listener = TcpListener::bind(&socket).await.unwrap_or_else(|e| {
             error!("Cannot open milter socket: {}", e);
             exit(1);
@@ -71,8 +74,29 @@ impl Limiter {
 
         info!("Milter listening on {}", socket);
 
+        // stops when it recieves LimiterSignals::STOP and reload on LimiterSignals::RELOAD
         let shutdown_signal = async move {
-            let _ = stop_rec.recv().await;
+            while let Some(signal) = stop_rec.recv().await {
+                match signal {
+                    LimiterSignals::STOP => {
+                        break;
+                    }
+                    LimiterSignals::RELOAD => {
+                        info!("SIGHUP received. Reloading...");
+
+                        save_db(&self.conn, PathBuf::from(&self.config.db_file))
+                            .await
+                            .unwrap_or_else(|e| {
+                                error!("Failed to save DB: {}", e);
+                                exit(1);
+                            });
+
+                        let args: Vec<String> = env::args().collect();
+                        let err = Command::new(&args[0]).args(&args[1..]).exec();
+                        error!("Failed to reload: {}", err);
+                    }
+                }
+            }
         };
 
         indymilter::run(listener, callbacks, config, shutdown_signal)
@@ -205,6 +229,8 @@ impl Limiter {
             .conn
             .call(move |conn| {
                 let tx = conn.transaction()?;
+
+                // TODO: clean up old entries
 
                 tx.execute(
                     "INSERT INTO emails (address, count, time)

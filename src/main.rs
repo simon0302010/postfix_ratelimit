@@ -6,7 +6,10 @@ use crate::{config::Config, limiter::Limiter};
 use std::{error::Error, path::PathBuf, process::exit, time::Duration};
 
 use log::{error, info};
-use signal_hook::{consts::TERM_SIGNALS, iterator::Signals};
+use signal_hook::{
+    consts::{SIGHUP, TERM_SIGNALS},
+    iterator::Signals,
+};
 use simple_logger::SimpleLogger;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio_rusqlite::Connection;
@@ -21,7 +24,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     });
 
     // channel for stop signal
-    let (stop_send, stop_rec): (Sender<()>, Receiver<()>) = mpsc::channel(1);
+    let (stop_send, stop_rec): (Sender<LimiterSignals>, Receiver<LimiterSignals>) =
+        mpsc::channel(1);
 
     // spawns the thread
     spawn_signal_thread(stop_send)?;
@@ -72,13 +76,25 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 /// spawns a thread that receives termination signals and sends them through a channel
-fn spawn_signal_thread(sender: Sender<()>) -> Result<(), Box<dyn Error>> {
-    let mut signals = Signals::new(TERM_SIGNALS)?;
+fn spawn_signal_thread(sender: Sender<LimiterSignals>) -> Result<(), Box<dyn Error>> {
+    let mut signals = Signals::new(
+        TERM_SIGNALS
+            .iter()
+            .copied()
+            .chain([SIGHUP])
+            .collect::<Vec<_>>(),
+    )?;
     std::thread::spawn(move || {
         for sig in signals.forever() {
             info!("Received signal {:?}", sig);
-            if sender.blocking_send(()).is_err() {
-                break;
+            if sig == SIGHUP {
+                if sender.blocking_send(LimiterSignals::RELOAD).is_err() {
+                    break;
+                }
+            } else if TERM_SIGNALS.contains(&sig) {
+                if sender.blocking_send(LimiterSignals::STOP).is_err() {
+                    break;
+                }
             }
         }
     });
@@ -116,4 +132,9 @@ async fn save_db(db_mem: &Connection, disk_path: PathBuf) -> Result<(), Box<dyn 
             exit(1);
         });
     Ok(())
+}
+
+pub enum LimiterSignals {
+    RELOAD,
+    STOP,
 }
