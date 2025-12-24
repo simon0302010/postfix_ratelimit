@@ -5,7 +5,7 @@ use crate::{config::Config, limiter::Limiter};
 
 use std::{error::Error, path::PathBuf, process::exit, time::Duration};
 
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use rusqlite::params;
 use signal_hook::{
     consts::{SIGHUP, TERM_SIGNALS},
@@ -40,6 +40,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     };
 
+    // set max log level to info if debug is disabled
+    if !config.debug {
+        log::set_max_level(log::LevelFilter::Info);
+    }
+
     // load db from disk into memory
     let db_mem = load_db(PathBuf::from(&config.db_file))
         .await
@@ -65,7 +70,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // spawn clean up thread
     if config.clean_interval > 0 {
-        spawn_clean_thread(db_mem.clone(), config.clone());
+        spawn_clean_thread(db_mem.clone(), config.clone()).await;
     }
 
     // start limiter and get the db connection back after it received the stop signal
@@ -109,6 +114,7 @@ fn spawn_signal_thread(sender: Sender<LimiterSignals>) -> Result<(), Box<dyn Err
     Ok(())
 }
 
+/// cleans the database on a set inverval
 async fn spawn_clean_thread(conn: Connection, config: Config) {
     tokio::spawn(async move {
         loop {
@@ -122,8 +128,10 @@ async fn spawn_clean_thread(conn: Connection, config: Config) {
                 .await
                 .is_err()
             {
-                error!("Failed to clean database.");
+                error!("Failed to clean database");
                 break;
+            } else {
+                debug!("Cleaned database")
             }
             // sleep
             tokio::time::sleep(Duration::from_mins(config.clean_interval)).await;
@@ -131,6 +139,7 @@ async fn spawn_clean_thread(conn: Connection, config: Config) {
     });
 }
 
+/// loads the database into ram
 async fn load_db(disk_path: PathBuf) -> Result<Connection, Box<dyn Error>> {
     let db_mem = Connection::open_in_memory().await?;
 
@@ -149,6 +158,7 @@ async fn load_db(disk_path: PathBuf) -> Result<Connection, Box<dyn Error>> {
     Ok(db_mem)
 }
 
+/// saves the database onto the hard drive
 async fn save_db(db_mem: &Connection, disk_path: PathBuf) -> Result<(), Box<dyn Error>> {
     db_mem
         .call(move |conn_mem| {

@@ -22,6 +22,10 @@ pub struct Config {
     pub per_host: bool,
     /// Frequency, in minutes, at which expired entries are removed from the database. Does not affect ratelimiting.
     pub clean_interval: u64,
+    /// Enables Debug mode which prints extra messages to the terminal
+    pub debug: bool,
+    /// Rejects Emails that encountered some kind of issue during processing. False by default.
+    pub reject_error: bool,
 }
 
 impl Default for Config {
@@ -36,6 +40,8 @@ impl Default for Config {
             count_recipients: true,
             per_host: false,
             clean_interval: 120,
+            debug: false,
+            reject_error: false,
         }
     }
 }

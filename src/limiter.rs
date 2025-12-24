@@ -5,7 +5,7 @@ use std::process::{Command, exit};
 use std::{env, u64};
 
 use indymilter::{Callbacks, Context, EomContext, SocketInfo, Status};
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use regex::Regex;
 use rusqlite::params;
 use tokio::net::{TcpListener, UnixListener};
@@ -176,22 +176,42 @@ impl Limiter {
 
     async fn handle_eom(&self, cx: &mut EomContext<ConnectionData>) -> Status {
         if let Some(data) = cx.data.as_ref() {
-            /*info!(
+            debug!(
                 "Received email from {:?} to {:?} from server {}",
                 data.sender.clone().unwrap_or_default(),
                 data.recipients,
-                data.ip
-            );*/
+                data.host
+            );
+
             let Some(sender) = data.sender.clone() else {
-                return Status::Continue;
+                if self.config.reject_error {
+                    return Status::Reject;
+                } else {
+                    return Status::Continue;
+                }
             };
+
             let count = if data.recipients.len() > 1 && self.config.count_recipients {
                 data.recipients.len() as u64
             } else {
                 1
             };
 
+            if data.recipients.len() == 0 {
+                warn!(
+                    "Cannot find recipients for email from {} ({})",
+                    sender, data.host
+                )
+            }
+
             let (allowed, emails) = self.allowed(sender.clone(), data.host.clone(), count).await;
+
+            if emails == 0 {
+                warn!("Email count from {} ({}) is zero.", sender, data.host);
+                if self.config.reject_error {
+                    return Status::Reject;
+                }
+            }
 
             if allowed {
                 Status::Accept
@@ -206,7 +226,11 @@ impl Limiter {
             }
         } else {
             warn!("No connection data found in EOM context. Cannot process email.");
-            Status::Continue
+            if self.config.reject_error {
+                Status::Reject
+            } else {
+                Status::Continue
+            }
         }
     }
 
@@ -276,6 +300,14 @@ impl Limiter {
                 };
 
                 tx.commit()?;
+
+                if new_count != 0 && new_count <= limit {
+                    debug!(
+                        "Allowing Mail sent by {} from host {} with a current count of {}",
+                        email, host, new_count
+                    );
+                }
+
                 Ok::<u64, tokio_rusqlite::Error>(new_count)
             })
             .await
