@@ -5,7 +5,8 @@ use crate::{config::Config, limiter::Limiter};
 
 use std::{error::Error, path::PathBuf, process::exit, time::Duration};
 
-use log::{error, info};
+use log::{error, info, warn};
+use rusqlite::params;
 use signal_hook::{
     consts::{SIGHUP, TERM_SIGNALS},
     iterator::Signals,
@@ -62,6 +63,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         })
         .await?;
 
+    // spawn clean up thread
+    if config.clean_interval > 0 {
+        spawn_clean_thread(db_mem.clone(), config.clone());
+    }
+
     // start limiter and get the db connection back after it received the stop signal
     let limiter = Limiter::new(db_mem.clone(), config.clone());
     limiter.run(config.socket, stop_rec).await;
@@ -101,6 +107,28 @@ fn spawn_signal_thread(sender: Sender<LimiterSignals>) -> Result<(), Box<dyn Err
         }
     });
     Ok(())
+}
+
+async fn spawn_clean_thread(conn: Connection, config: Config) {
+    tokio::spawn(async move {
+        loop {
+            if conn
+                .call(move |conn| {
+                    conn.execute(
+                        "DELETE FROM emails WHERE (strftime('%s','now') - time) > ?1",
+                        params![config.limit],
+                    )
+                })
+                .await
+                .is_err()
+            {
+                error!("Failed to clean database.");
+                break;
+            }
+            // sleep
+            tokio::time::sleep(Duration::from_mins(config.clean_interval)).await;
+        }
+    });
 }
 
 async fn load_db(disk_path: PathBuf) -> Result<Connection, Box<dyn Error>> {

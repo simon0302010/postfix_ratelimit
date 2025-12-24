@@ -8,7 +8,7 @@ use indymilter::{Callbacks, Context, EomContext, SocketInfo, Status};
 use log::{error, info, warn};
 use regex::Regex;
 use rusqlite::params;
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, UnixListener};
 use tokio::sync::mpsc::Receiver;
 use tokio_rusqlite::Connection;
 
@@ -41,10 +41,7 @@ impl Limiter {
     }
 
     pub async fn run(&self, socket: String, mut stop_rec: Receiver<LimiterSignals>) {
-        let listener = TcpListener::bind(&socket).await.unwrap_or_else(|e| {
-            error!("Cannot open milter socket: {}", e);
-            exit(1);
-        });
+        let listener = create_listener(&socket).await;
 
         let limiter_connect = self.clone();
         let limiter_mail = self.clone();
@@ -99,12 +96,20 @@ impl Limiter {
             }
         };
 
-        indymilter::run(listener, callbacks, config, shutdown_signal)
-            .await
-            .unwrap_or_else(|e| {
-                error!("Execution of milter failed: {}", e);
-                exit(1);
-            })
+        match listener {
+            ListenerType::Tcp(l) => indymilter::run(l, callbacks, config, shutdown_signal)
+                .await
+                .unwrap_or_else(|e| {
+                    error!("Execution of milter failed: {}", e);
+                    exit(1);
+                }),
+            ListenerType::Unix(l) => indymilter::run(l, callbacks, config, shutdown_signal)
+                .await
+                .unwrap_or_else(|e| {
+                    error!("Execution of milter failed: {}", e);
+                    exit(1);
+                }),
+        }
     }
 
     async fn handle_connect(
@@ -219,7 +224,6 @@ impl Limiter {
         None
     }
 
-    // TODO: take host into account
     /// check whether to allow email
     /// returns (allowed: bool, email count: u64)
     async fn allowed(&self, email: String, host: String, count: u64) -> (bool, u64) {
@@ -279,4 +283,26 @@ impl Limiter {
 
         (current_count <= limit, current_count)
     }
+}
+
+async fn create_listener(socket: &str) -> ListenerType {
+    if socket.starts_with("/") {
+        let _ = std::fs::remove_file(socket);
+        let listener = UnixListener::bind(socket).unwrap_or_else(|e| {
+            error!("Cannot bind Unix socket: {}", e);
+            exit(1);
+        });
+        return ListenerType::Unix(listener);
+    } else {
+        let listener = TcpListener::bind(&socket).await.unwrap_or_else(|e| {
+            error!("Cannot bind TCP socket: {}", e);
+            exit(1);
+        });
+        return ListenerType::Tcp(listener);
+    }
+}
+
+enum ListenerType {
+    Tcp(TcpListener),
+    Unix(UnixListener),
 }
