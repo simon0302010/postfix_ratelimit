@@ -1,8 +1,0 @@
-db_file = "database.db"
-limit = 20
-interval = 60
-socket = "127.0.0.1:3000"
-max_recipients = 20
-count_recipients = false
-per_host = true
-debug = false

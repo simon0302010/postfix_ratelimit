@@ -14,7 +14,7 @@ use signal_hook::{
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio_rusqlite::Connection;
 
-const CONFIG_PATH: &str = "config.toml";
+const CONFIG_NAME: &str = "postfix_ratelimit.conf";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -26,7 +26,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
     spawn_signal_thread(stop_send)?;
 
     // load config
-    let config = match Config::from_file(CONFIG_PATH) {
+    let config_path = match find_config().await {
+        Ok(path) => path,
+        Err(()) => {
+            eprintln!(
+                "Error: Config file not found. Use --config=<path> to specify or see the documentation for possible locations.",
+            );
+            exit(1);
+        }
+    };
+
+    let config = match Config::from_file(
+        config_path
+            .to_str()
+            .expect("Failed to convert harcoded path to string. This should be impossible..."),
+    ) {
         Ok(cfg) => cfg,
         Err(e) => {
             eprintln!("Failed to parse configuration file\n{}", e);
@@ -206,6 +220,38 @@ async fn setup_logger(config: &Config) -> Result<(), log::SetLoggerError> {
     }
 
     logger.apply()
+}
+
+/// finds the configuration file
+async fn find_config() -> Result<PathBuf, ()> {
+    for argument in std::env::args().collect::<Vec<String>>() {
+        if argument.starts_with("--config=") {
+            return Ok(
+                PathBuf::try_from(argument.trim_start_matches("--config=").trim()).unwrap_or_else(
+                    |e| {
+                        eprintln!("Failed to parse config path: {}", e);
+                        exit(1);
+                    },
+                ),
+            );
+        }
+    }
+
+    let paths = vec![
+        format!("/etc/{}", CONFIG_NAME),
+        format!("/usr/local/etc/{}", CONFIG_NAME),
+    ];
+
+    for config_path in paths {
+        match PathBuf::try_from(config_path) {
+            Ok(path) if path.exists() => {
+                return Ok(path);
+            }
+            _ => {}
+        }
+    }
+
+    Err(())
 }
 
 pub enum LimiterSignals {
