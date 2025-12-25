@@ -26,13 +26,15 @@ pub struct Config {
     pub debug: bool,
     /// Rejects Emails that encountered some kind of issue during processing. False by default.
     pub reject_error: bool,
+    /// In which file to write the logs. Leave empty for no logging to file.
+    pub log_file: String,
 }
 
 impl Default for Config {
     fn default() -> Self {
         // temporary
         Self {
-            db_file: "ratelimit.sqlite".to_string(),
+            db_file: "postfix_ratelimit.sqlite".to_string(),
             interval: 60, // 1h
             limit: 20,
             socket: "127.0.0.1:11847".to_string(),
@@ -42,6 +44,7 @@ impl Default for Config {
             clean_interval: 120,
             debug: false,
             reject_error: false,
+            log_file: "postfix_ratelimit.log".to_string(),
         }
     }
 }

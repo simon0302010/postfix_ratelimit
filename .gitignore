@@ -4,3 +4,4 @@ test.py
 .venv/
 database.db
 config.toml
+*.log

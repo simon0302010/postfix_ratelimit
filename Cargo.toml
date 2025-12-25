@@ -9,7 +9,8 @@ rusqlite = { version = "0.37", features = ["backup", "bundled"] }
 toml = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
-simple_logger = "5.1"
+fern = "0.7"
+chrono = "0.4"
 indymilter = "0.3"
 tokio = { version = "1.48", features = ["macros", "rt-multi-thread"] }
 tokio-rusqlite = "0.7"

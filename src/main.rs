@@ -11,7 +11,6 @@ use signal_hook::{
     consts::{SIGHUP, TERM_SIGNALS},
     iterator::Signals,
 };
-use simple_logger::SimpleLogger;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio_rusqlite::Connection;
 
@@ -19,11 +18,6 @@ const CONFIG_PATH: &str = "config.toml";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    // init logger
-    SimpleLogger::new().init().unwrap_or_else(|_| {
-        eprintln!("Failed to initialize logger");
-    });
-
     // channel for stop signal
     let (stop_send, stop_rec): (Sender<LimiterSignals>, Receiver<LimiterSignals>) =
         mpsc::channel(1);
@@ -35,21 +29,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let config = match Config::from_file(CONFIG_PATH) {
         Ok(cfg) => cfg,
         Err(e) => {
-            error!("Failed to parse configuration file\n{}", e);
+            eprintln!("Failed to parse configuration file\n{}", e);
             exit(1);
         }
     };
 
-    // set max log level to info if debug is disabled
-    if config.debug
-        || std::env::args()
-            .collect::<Vec<String>>()
-            .contains(&"--debug".to_string())
-    {
-        log::set_max_level(log::LevelFilter::Debug);
-    } else {
-        log::set_max_level(log::LevelFilter::Info);
-    }
+    setup_logger(&config).await.unwrap_or_else(|e| {
+        eprintln!("Failed to initialize logger: {}", e);
+        exit(1);
+    });
 
     // load db from disk into memory
     let db_mem = load_db(PathBuf::from(&config.db_file))
@@ -178,6 +166,46 @@ async fn save_db(db_mem: &Connection, disk_path: PathBuf) -> Result<(), Box<dyn 
             exit(1);
         });
     Ok(())
+}
+
+async fn setup_logger(config: &Config) -> Result<(), log::SetLoggerError> {
+    let log_level = if config.debug
+        || std::env::args()
+            .collect::<Vec<String>>()
+            .contains(&"--debug".to_string())
+    {
+        log::LevelFilter::Debug
+    } else {
+        log::LevelFilter::Info
+    };
+
+    let mut logger = fern::Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "{} [{}] {}",
+                chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
+                record.level(),
+                message
+            ))
+        })
+        .level(log_level)
+        .chain(std::io::stdout());
+
+    if !config.log_file.trim().is_empty() {
+        match fern::log_file(config.log_file.clone()) {
+            Ok(file) => {
+                logger = logger.chain(file);
+            }
+            Err(e) => {
+                eprintln!(
+                    "Failed to create log file: ({}). Only logging to console.",
+                    e
+                );
+            }
+        }
+    }
+
+    logger.apply()
 }
 
 pub enum LimiterSignals {
