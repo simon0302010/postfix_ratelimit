@@ -5,7 +5,7 @@ use crate::{config::Config, limiter::Limiter};
 
 use std::{error::Error, path::PathBuf, process::exit, time::Duration};
 
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use rusqlite::params;
 use signal_hook::{
     consts::{SIGHUP, TERM_SIGNALS},
@@ -41,7 +41,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     // set max log level to info if debug is disabled
-    if !config.debug {
+    if config.debug
+        || std::env::args()
+            .collect::<Vec<String>>()
+            .contains(&"--debug".to_string())
+    {
+        log::set_max_level(log::LevelFilter::Debug);
+    } else {
         log::set_max_level(log::LevelFilter::Info);
     }
 
