@@ -43,7 +43,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     ) {
         Ok(cfg) => cfg,
         Err(e) => {
-            eprintln!("Failed to parse configuration file\n{}", e);
+            eprintln!("Failed to parse configuration file:\n{}", e);
             exit(1);
         }
     };
