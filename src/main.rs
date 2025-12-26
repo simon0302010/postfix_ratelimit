@@ -54,12 +54,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     });
 
     // load db from disk into memory
+    debug!("Starting to load database");
     let db_mem = load_db(PathBuf::from(&config.db_file))
         .await
         .unwrap_or_else(|e| {
             error!("Failed to load DB: {}", e);
             exit(1);
         });
+    debug!("Loaded database into memory");
 
     db_mem
         .call(|conn| {
@@ -86,12 +88,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     limiter.run(config.socket, stop_rec).await;
 
     // write db back to disk
+    debug!("Starting to save database");
     save_db(&db_mem, PathBuf::from(&config.db_file))
         .await
         .unwrap_or_else(|e| {
             error!("Failed to save DB: {}", e);
             exit(1);
         });
+    debug!("Successfully saved database to hard drive");
 
     Ok(())
 }
