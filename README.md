@@ -20,17 +20,18 @@ A Milter for Postfix that limits the number of emails sent from a user within a 
 
 2. Create a configuration file at `/etc/postfix_ratelimit.conf` or `usr/local/etc/postfix_ratelimit.conf` with the following content:
     ```toml
-    # Set these to the paths you want to use for the database and log files
+    # Please change the paths and values as needed
     db_file = "/path/to/your/postfix_ratelimit.db"
-    log_file = "/path/to/your/postfix_ratelimit.log"
+    log_file = "/path/to/your/postfix_ratelimit.log" # Optional but recommended
+    interval = 60          # Time window in minutes
+    limit = 20             # Max emails allowed in the time window
     ```
   > Please see the [Configuration](#Configuration) section for all available options.
 
-3. Configure Postfix to use the Milter by adding the following lines to your `main.cf`:
+3. Configure Postfix to use the Milter by adding the following lines to postfix configuration file:
     ```conf
     # Replace "inet:localhost:12345" with the actual address and port where postfix_ratelimit is listening.
     smtpd_milters = inet:localhost:12345
-    milter_default_action = tempfail
     milter_protocol = 6
     # To apply it to non-SMTP mail, add:
     # non_smtpd_milters = inet:localhost:12345
@@ -49,7 +50,7 @@ postfix_ratelimit
 
 You can configure options like this:
 
-```toml
+```
 option = value
 ```
 
@@ -73,3 +74,4 @@ option = value
 
 --config="<PATH>": Specify an configuration file path.
 --debug: Enable debug mode.
+--help: Show help message.

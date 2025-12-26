@@ -21,12 +21,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // --help commandline option
     let args = std::env::args().collect::<Vec<String>>();
     if args.contains(&"--help".to_string()) {
-        println!("Usage: {} [OPTIONS]", args[0]);
-        println!();
-        println!("Options:");
-        println!("  --config=<path>   Specify the path to the configuration file.");
-        println!("  --debug           Enable debug logging.");
-        println!("  --help            Show this help message and exit.");
+        show_help(args[0].clone());
         exit(0);
     }
 
@@ -270,6 +265,21 @@ async fn find_config() -> Result<PathBuf, ()> {
     }
 
     Err(())
+}
+
+fn show_help(executable: String) {
+    println!("postfix_ratelimit  Copyright (C) 2025  simon0302010");
+    println!("This program comes with ABSOLUTELY NO WARRANTY.");
+    println!("This is free software, and you are welcome to redistribute it");
+    println!("under certain conditions.");
+    println!();
+    println!("Usage: {} [OPTIONS]", executable);
+    println!();
+    println!("Options:");
+    println!("  --config=<path>   Specify the path to the configuration file.");
+    println!("  --debug           Enable debug logging.");
+    println!("  --help            Show this help message and exit.");
+    exit(0);
 }
 
 pub enum LimiterSignals {
