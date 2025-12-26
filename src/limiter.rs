@@ -312,19 +312,29 @@ impl Limiter {
 }
 
 async fn create_listener(socket: &str) -> ListenerType {
-    if socket.starts_with("/") {
-        let _ = std::fs::remove_file(socket);
-        let listener = UnixListener::bind(socket).unwrap_or_else(|e| {
+    if socket.starts_with("unix:") {
+        let socket_trimmed = socket.trim_start_matches("unix:");
+        let _ = std::fs::remove_file(socket_trimmed);
+        let listener = UnixListener::bind(socket_trimmed).unwrap_or_else(|e| {
             error!("Cannot bind Unix socket: {}", e);
             exit(1);
         });
         return ListenerType::Unix(listener);
-    } else {
-        let listener = TcpListener::bind(&socket).await.unwrap_or_else(|e| {
-            error!("Cannot bind TCP socket: {}", e);
-            exit(1);
-        });
+    } else if socket.starts_with("inet:") {
+        let socket_trimmed = socket.trim_start_matches("inet:");
+        let listener = TcpListener::bind(&socket_trimmed)
+            .await
+            .unwrap_or_else(|e| {
+                error!("Cannot bind TCP socket: {}", e);
+                exit(1);
+            });
         return ListenerType::Tcp(listener);
+    } else {
+        error!(
+            "Unknown socket type: {}. Please specify with unix: or inet:",
+            socket
+        );
+        exit(1);
     }
 }
 

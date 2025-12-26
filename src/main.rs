@@ -18,6 +18,18 @@ const CONFIG_NAME: &str = "postfix_ratelimit.conf";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    // --help commandline option
+    let args = std::env::args().collect::<Vec<String>>();
+    if args.contains(&"--help".to_string()) {
+        println!("Usage: {} [OPTIONS]", args[0]);
+        println!();
+        println!("Options:");
+        println!("  --config=<path>   Specify the path to the configuration file.");
+        println!("  --debug           Enable debug logging.");
+        println!("  --help            Show this help message and exit.");
+        exit(0);
+    }
+
     // channel for stop signal
     let (stop_send, stop_rec): (Sender<LimiterSignals>, Receiver<LimiterSignals>) =
         mpsc::channel(1);
@@ -221,6 +233,8 @@ async fn setup_logger(config: &Config) -> Result<(), log::SetLoggerError> {
                 );
             }
         }
+    } else {
+        println!("Not logging to file")
     }
 
     logger.apply()

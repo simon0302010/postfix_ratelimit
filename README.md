@@ -1,1 +1,75 @@
 # Postfix_Ratelimit
+
+A Milter for Postfix that limits the number of emails sent from a user within a specified time frame.
+
+## Features
+
+- Limits the number of emails sent per user
+- Configurable time frame and email limit
+- Configurable
+- Supports serving multiple Postfix servers
+- Takes less than 1ms per email
+
+## Installation
+
+1. Install the binary
+    ```bash
+    cargo install --git https://github.com/simon0302010/postfix_ratelimit.git
+    cp ~/.cargo/bin/postfix_ratelimit /usr/local/bin/postfix_ratelimit
+    ```
+
+2. Create a configuration file at `/etc/postfix_ratelimit.conf` or `usr/local/etc/postfix_ratelimit.conf` with the following content:
+    ```toml
+    # Set these to the paths you want to use for the database and log files
+    db_file = "/path/to/your/postfix_ratelimit.db"
+    log_file = "/path/to/your/postfix_ratelimit.log"
+    ```
+  > Please see the [Configuration](#Configuration) section for all available options.
+
+3. Configure Postfix to use the Milter by adding the following lines to your `main.cf`:
+    ```conf
+    # Replace "inet:localhost:12345" with the actual address and port where postfix_ratelimit is listening.
+    smtpd_milters = inet:localhost:12345
+    milter_default_action = tempfail
+    milter_protocol = 6
+    # To apply it to non-SMTP mail, add:
+    # non_smtpd_milters = inet:localhost:12345
+    ```
+  
+## Usage
+
+You can now run the Milter with the following command:
+
+```bash
+postfix_ratelimit
+```
+> You can also create a service to run it in the background.
+
+## Configuration
+
+You can configure options like this:
+
+```toml
+option = value
+```
+
+### Options
+
+| Option            | Type    | Default                  | Description                                                                                                                        |
+|-------------------|---------|--------------------------|------------------------------------------------------------------------------------------------------------------------------------|
+| db_file           | String  | (none, required)         | Path to the SQLite database file used for storing rate limit data. **This option must be set manually.**                            |
+| log_file          | String  | (none, required)         | File path to write logs. **This option must be set manually. Leave empty for no logging to file.**                                 |
+| socket            | String  | "inet:127.0.0.1:11847"   | Address on which the milter will listen, specified as either "inet:IP:PORT" for TCP or "unix:/path/to/socket" for Unix socket.     |
+| interval          | u64     | 60                       | Time window for rate limiting, specified in minutes.                                                                               |
+| limit             | u64     | 20                       | Maximum number of emails allowed to be sent within each interval.                                                                  |
+| count_recipients  | bool    | true                     | If true, each recipient counts separately towards the rate limit.                                                                  |
+| max_recipients    | u64     | 20                       | Maximum number of recipients allowed per individual email message. 0 for no limit.                                                 |
+| per_host          | bool    | false                    | If true, rate limiting is tracked separately per sender and per connecting host.                                                   |
+| clean_interval    | u64     | 120                      | Frequency, in minutes, at which expired entries are removed from the database.                                                     |
+| debug             | bool    | false                    | Enables Debug mode which prints extra messages to the terminal.                                                                    |
+| reject_error      | bool    | false                    | Rejects emails that encountered issues during processing.                                                              |
+
+### CLI Options
+
+--config="<PATH>": Specify an configuration file path.
+--debug: Enable debug mode.

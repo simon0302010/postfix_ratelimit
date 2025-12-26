@@ -11,7 +11,7 @@ pub struct Config {
     pub interval: u64,
     /// Maximum number of emails allowed to be sent within each interval.
     pub limit: u64,
-    /// Address (IP:PORT) on which the milter will listen, or a Unix socket path (must start with '/').
+    /// Address on which the milter will listen, specified as either "inet:IP:PORT" for a TCP socket or "unix:/path/to/socket" for a Unix socket.
     pub socket: String,
     /// Maximum number of recipients allowed per individual email message. 0 for no limit.
     pub max_recipients: u64,
@@ -35,7 +35,7 @@ impl Default for Config {
             db_file: String::new(),
             interval: 60, // 1h
             limit: 20,
-            socket: "127.0.0.1:11847".to_string(),
+            socket: "inet:127.0.0.1:11847".to_string(),
             max_recipients: 20,
             count_recipients: true,
             per_host: false,
@@ -70,11 +70,7 @@ impl Config {
         let mut errors: Vec<&str> = Vec::new();
 
         if self.db_file.is_empty() {
-            errors.push("Required field \"db_file\" is missing from config");
-            failed = true;
-        }
-        if self.log_file.is_empty() {
-            errors.push("Required field \"log_file\" is missing from config");
+            errors.push("Required field \"db_file\" is missing from config or empty");
             failed = true;
         }
 
