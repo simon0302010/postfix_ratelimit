@@ -129,8 +129,8 @@ async fn spawn_clean_thread(conn: Connection, config: Config) {
             if conn
                 .call(move |conn| {
                     conn.execute(
-                        "DELETE FROM emails WHERE (strftime('%s','now') - time) > ?1",
-                        params![config.limit],
+                        "DELETE FROM emails WHERE (unixepoch('now') - time) > ?1",
+                        params![config.interval * 60],
                     )
                 })
                 .await
@@ -155,7 +155,7 @@ async fn load_db(disk_path: PathBuf) -> Result<Connection, Box<dyn Error>> {
         .call(move |conn_mem| {
             let conn_disk = rusqlite::Connection::open(&disk_path)?;
             let backup = rusqlite::backup::Backup::new(&conn_disk, conn_mem)?;
-            backup.run_to_completion(5, Duration::from_millis(250), None)
+            backup.run_to_completion(-1, Duration::from_millis(0), None)
         })
         .await
         .unwrap_or_else(|e| {
@@ -172,7 +172,7 @@ async fn save_db(db_mem: &Connection, disk_path: PathBuf) -> Result<(), Box<dyn 
         .call(move |conn_mem| {
             let mut conn_disk = rusqlite::Connection::open(&disk_path)?;
             let backup = rusqlite::backup::Backup::new(conn_mem, &mut conn_disk)?;
-            backup.run_to_completion(5, Duration::from_millis(250), None)
+            backup.run_to_completion(-1, Duration::from_millis(0), None)
         })
         .await
         .unwrap_or_else(|e| {

@@ -253,14 +253,17 @@ impl Limiter {
     async fn allowed(&self, email: String, host: String, count: u64) -> (bool, u64) {
         let interval_seconds = self.config.interval * 60;
         let limit = self.config.limit;
-        let per_host = self.config.per_host;
+
+        let db_host = if self.config.per_host {
+            host.clone()
+        } else {
+            "global".to_string()
+        };
 
         let current_count = self
             .conn
             .call(move |conn| {
                 let tx = conn.transaction()?;
-
-                // TODO: clean up old entries
 
                 tx.execute(
                     "INSERT INTO emails (address, host, count, time)
@@ -268,35 +271,23 @@ impl Limiter {
                      ON CONFLICT(address, host) DO UPDATE SET
                         count = 0, time = unixepoch('now')
                      WHERE (unixepoch('now') - emails.time) > ?3",
-                    params![email, host, interval_seconds],
+                    params![email, db_host, interval_seconds],
                 )?;
 
                 tx.execute(
                     "INSERT INTO emails (address, host, count, time)
-                 VALUES (?1, ?2, ?3, unixepoch('now'))
-                 ON CONFLICT(address, host) DO UPDATE SET
-                    count = emails.count + ?3",
-                    params![email, host, count],
+                      VALUES (?1, ?2, ?3, unixepoch('now'))
+                      ON CONFLICT(address, host) DO UPDATE SET
+                         count = emails.count + ?3",
+                    params![email, db_host, count],
                 )?;
 
-                let new_count = if per_host {
+                let new_count: u64 = {
                     let mut stmt =
                         tx.prepare("SELECT count FROM emails WHERE address = ?1 AND host = ?2")?;
-                    let mut rows = stmt.query(params![email, host])?;
-                    if let Some(row) = rows.next()? {
-                        row.get::<_, u64>(0)?
-                    } else {
-                        0
-                    }
-                } else {
-                    let mut stmt =
-                        tx.prepare("SELECT SUM(count) FROM emails WHERE address = ?1")?;
-                    let mut rows = stmt.query(params![email])?;
-                    if let Some(row) = rows.next()? {
-                        row.get::<_, Option<u64>>(0)?.unwrap_or(0)
-                    } else {
-                        0
-                    }
+
+                    stmt.query_row(params![email, db_host], |row| row.get(0))
+                        .unwrap_or(0)
                 };
 
                 tx.commit()?;
@@ -311,7 +302,10 @@ impl Limiter {
                 Ok::<u64, tokio_rusqlite::Error>(new_count)
             })
             .await
-            .unwrap_or(0);
+            .unwrap_or_else(|e| {
+                error!("Database error: {}", e);
+                0
+            });
 
         (current_count <= limit, current_count)
     }
