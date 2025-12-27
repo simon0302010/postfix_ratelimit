@@ -72,6 +72,7 @@ impl Limiter {
         info!("Milter listening on {}", socket);
 
         // stops when it recieves LimiterSignals::STOP and reload on LimiterSignals::RELOAD
+        let limiter_shutdown = self.clone();
         let shutdown_signal = async move {
             while let Some(signal) = stop_rec.recv().await {
                 match signal {
@@ -91,6 +92,10 @@ impl Limiter {
                         let args: Vec<String> = env::args().collect();
                         let err = Command::new(&args[0]).args(&args[1..]).exec();
                         error!("Failed to reload: {}", err);
+                    }
+                    LimiterSignals::CONFIG => {
+                        info!("Showing current configuration:");
+                        println!("{}", limiter_shutdown.config);
                     }
                 }
             }

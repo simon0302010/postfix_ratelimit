@@ -8,7 +8,7 @@ use std::{error::Error, path::PathBuf, process::exit, time::Duration};
 use log::{debug, error, info};
 use rusqlite::params;
 use signal_hook::{
-    consts::{SIGHUP, TERM_SIGNALS},
+    consts::{SIGHUP, SIGUSR1, TERM_SIGNALS},
     iterator::Signals,
 };
 use tokio::sync::mpsc::{self, Receiver, Sender};
@@ -113,14 +113,19 @@ fn spawn_signal_thread(sender: Sender<LimiterSignals>) -> Result<(), Box<dyn Err
         TERM_SIGNALS
             .iter()
             .copied()
-            .chain([SIGHUP])
+            .chain([SIGHUP, SIGUSR1])
             .collect::<Vec<_>>(),
     )?;
+
     std::thread::spawn(move || {
         for sig in signals.forever() {
             info!("Received signal {:?}", sig);
             if sig == SIGHUP {
                 if sender.blocking_send(LimiterSignals::RELOAD).is_err() {
+                    break;
+                }
+            } else if sig == SIGUSR1 {
+                if sender.blocking_send(LimiterSignals::CONFIG).is_err() {
                     break;
                 }
             } else if TERM_SIGNALS.contains(&sig) {
@@ -285,4 +290,5 @@ fn show_help(executable: String) {
 pub enum LimiterSignals {
     RELOAD,
     STOP,
+    CONFIG,
 }

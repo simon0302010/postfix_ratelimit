@@ -46,6 +46,14 @@ postfix_ratelimit
 ```
 > You can also create a service to run it in the background.
 
+### Signals
+
+You can send different signals to the program to control it:
+
+- SIGUSR1 (10) prints the currently loaded configuation values to the console
+- SIGHUP (1) restarts the program to reload the configuration file or save the database
+- Termination Signals (2, 3, 15) save the database and stop the program
+
 ## Configuration
 
 You can configure options like this:

@@ -81,3 +81,44 @@ impl Config {
         }
     }
 }
+
+impl std::fmt::Display for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut to_write: Vec<String> = Vec::new();
+        if !self.db_file.is_empty() {
+            to_write.push(format!("Database: {}", self.db_file));
+        }
+        to_write.push(format!("Interval: {}m", self.interval));
+        to_write.push(format!("Limit: {}", self.limit));
+        to_write.push(format!("Socket: {}", self.socket));
+        to_write.push(format!("Max recipients: {}", self.max_recipients));
+        to_write.push(format!(
+            "Count recipients: {}",
+            to_yes_or_no(self.count_recipients)
+        ));
+        to_write.push(format!("Per host: {}", to_yes_or_no(self.per_host)));
+        to_write.push(format!("Clean interval: {}m", self.clean_interval));
+        to_write.push(format!("Debug mode: {}", to_yes_or_no(self.debug)));
+        to_write.push(format!(
+            "Reject errors: {}",
+            to_yes_or_no(self.reject_error)
+        ));
+        to_write.push(format!("Log file: {}", {
+            if self.log_file == String::new() {
+                "No".to_string()
+            } else {
+                self.log_file.clone()
+            }
+        }));
+
+        write!(f, "{}", to_write.join("\n"))
+    }
+}
+
+fn to_yes_or_no(boolean: bool) -> String {
+    if boolean {
+        "Yes".to_string()
+    } else {
+        "No".to_string()
+    }
+}
