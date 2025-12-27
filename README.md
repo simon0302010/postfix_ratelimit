@@ -18,7 +18,7 @@ A Milter for Postfix that limits the number of emails sent from a user within a 
     cp ~/.cargo/bin/postfix_ratelimit /usr/local/bin/postfix_ratelimit
     ```
 
-2. Create a configuration file at `/etc/postfix_ratelimit.conf` or `usr/local/etc/postfix_ratelimit.conf` with the following content:
+2. Create a configuration file at `/etc/postfix_ratelimit.conf` or `/usr/local/etc/postfix_ratelimit.conf` with the following content:
     ```toml
     # Please change the paths and values as needed
     db_file = "/path/to/your/postfix_ratelimit.db"
@@ -28,7 +28,7 @@ A Milter for Postfix that limits the number of emails sent from a user within a 
     ```
   > Please see the [Configuration](#Configuration) section for all available options.
 
-3. Configure Postfix to use the Milter by adding the following lines to postfix configuration file:
+3. Configure Postfix to use the Milter by adding the following lines to your postfix configuration file:
     ```conf
     # Replace "inet:localhost:12345" with the actual address and port where postfix_ratelimit is listening.
     smtpd_milters = inet:localhost:12345
