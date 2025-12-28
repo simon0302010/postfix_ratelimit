@@ -12,7 +12,7 @@ A Milter for Postfix that limits the number of emails sent from a user within a 
 
 1. Install the binary
     ```bash
-    cargo install --git https://github.com/simon0302010/postfix_ratelimit.git
+    cargo install postfix_ratelimit
     cp ~/.cargo/bin/postfix_ratelimit /usr/local/bin/postfix_ratelimit
     ```
 
