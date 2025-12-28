@@ -5,10 +5,10 @@ use crate::{config::Config, limiter::Limiter};
 
 use std::{error::Error, path::PathBuf, process::exit, time::Duration};
 
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use rusqlite::params;
 use signal_hook::{
-    consts::{SIGHUP, SIGUSR1, TERM_SIGNALS},
+    consts::{SIGHUP, SIGUSR1, SIGUSR2, TERM_SIGNALS},
     iterator::Signals,
 };
 use tokio::sync::mpsc::{self, Receiver, Sender};
@@ -113,7 +113,7 @@ fn spawn_signal_thread(sender: Sender<LimiterSignals>) -> Result<(), Box<dyn Err
         TERM_SIGNALS
             .iter()
             .copied()
-            .chain([SIGHUP, SIGUSR1])
+            .chain([SIGHUP, SIGUSR1, SIGUSR2])
             .collect::<Vec<_>>(),
     )?;
 
@@ -128,12 +128,17 @@ fn spawn_signal_thread(sender: Sender<LimiterSignals>) -> Result<(), Box<dyn Err
                 if sender.blocking_send(LimiterSignals::CONFIG).is_err() {
                     break;
                 }
+            } else if sig == SIGUSR2 {
+                if sender.blocking_send(LimiterSignals::CLEAR_DB).is_err() {
+                    break;
+                }
             } else if TERM_SIGNALS.contains(&sig) {
                 if sender.blocking_send(LimiterSignals::STOP).is_err() {
                     break;
                 }
             }
         }
+        warn!("Signal handling thread crashed");
     });
     Ok(())
 }
@@ -291,4 +296,5 @@ pub enum LimiterSignals {
     RELOAD,
     STOP,
     CONFIG,
+    CLEAR_DB,
 }

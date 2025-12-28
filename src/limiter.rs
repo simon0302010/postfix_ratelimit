@@ -97,6 +97,17 @@ impl Limiter {
                         info!("Showing current configuration:");
                         println!("{}", limiter_shutdown.config);
                     }
+                    LimiterSignals::CLEAR_DB => {
+                        info!("Clearing database");
+                        let _ = limiter_shutdown
+                            .conn
+                            .call(move |conn| conn.execute("DELETE FROM emails", params![]))
+                            .await
+                            .unwrap_or_else(|e| {
+                                error!("Failed to clear database: {}", e);
+                                0
+                            });
+                    }
                 }
             }
         };

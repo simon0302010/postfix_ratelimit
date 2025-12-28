@@ -51,6 +51,7 @@ postfix_ratelimit
 You can send different signals to the program to control it:
 
 - SIGUSR1 (10) prints the currently loaded configuation values to the console
+- SIGUSR2 (12) resets all rate limits by clearing the database
 - SIGHUP (1) restarts the program to reload the configuration file or save the database
 - Termination Signals (2, 3, 15) save the database and stop the program
 
