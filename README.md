@@ -6,9 +6,7 @@ A Milter for Postfix that limits the number of emails sent from a user within a 
 
 - Limits the number of emails sent per user
 - Configurable time frame and email limit
-- Configurable
-- Supports serving multiple Postfix servers
-- Takes less than 1ms per email
+- Supports serving multiple Postfix/Sendmail servers
 
 ## Installation
 
