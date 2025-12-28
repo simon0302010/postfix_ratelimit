@@ -1,4 +1,6 @@
 use std::ffi::CString;
+use std::fs::{Permissions, set_permissions};
+use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Command, exit};
@@ -185,6 +187,7 @@ impl Limiter {
 
         if let Some(data) = cx.data.as_mut() {
             data.sender = sender;
+            data.recipients.clear();
         }
 
         Status::Continue
@@ -331,10 +334,18 @@ async fn create_listener(socket: &str) -> ListenerType {
     if socket.starts_with("unix:") {
         let socket_trimmed = socket.trim_start_matches("unix:");
         let _ = std::fs::remove_file(socket_trimmed);
+
         let listener = UnixListener::bind(socket_trimmed).unwrap_or_else(|e| {
             error!("Cannot bind Unix socket: {}", e);
             exit(1);
         });
+
+        let permissions = Permissions::from_mode(0o666);
+        if let Err(e) = set_permissions(socket_trimmed, permissions) {
+            error!("Failed to set socket permissions: {}", e);
+            exit(1);
+        }
+
         return ListenerType::Unix(listener);
     } else if socket.starts_with("inet:") {
         let socket_trimmed = socket.trim_start_matches("inet:");
