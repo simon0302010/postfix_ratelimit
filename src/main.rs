@@ -43,7 +43,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     };
 
-    let config = match Config::from_file(
+    let mut config = match Config::from_file(
         config_path
             .to_str()
             .expect("Failed to convert harcoded path to string. This should be impossible..."),
@@ -54,6 +54,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
             exit(1);
         }
     };
+
+    // --socket= argument
+    if let Some(socket) = parse_option_argument("socket") {
+        config.socket = socket
+    }
 
     setup_logger(&config).await.unwrap_or_else(|e| {
         eprintln!("Failed to initialize logger: {}", e);
@@ -247,17 +252,11 @@ async fn setup_logger(config: &Config) -> Result<(), log::SetLoggerError> {
 
 /// finds the configuration file
 async fn find_config() -> Result<PathBuf, ()> {
-    for argument in std::env::args().collect::<Vec<String>>() {
-        if argument.starts_with("--config=") {
-            return Ok(
-                PathBuf::try_from(argument.trim_start_matches("--config=").trim()).unwrap_or_else(
-                    |e| {
-                        eprintln!("Failed to parse config path: {}", e);
-                        exit(1);
-                    },
-                ),
-            );
-        }
+    if let Some(path) = parse_option_argument("config") {
+        return Ok(PathBuf::try_from(path).unwrap_or_else(|e| {
+            eprintln!("Failed to parse config path: {}", e);
+            exit(1);
+        }));
     }
 
     let paths = vec![
@@ -292,6 +291,19 @@ fn show_help(executable: String) {
     exit(0);
 }
 
+fn parse_option_argument(option: &str) -> Option<String> {
+    let option_arg = format!("--{}=", option);
+    for argument in std::env::args().collect::<Vec<String>>() {
+        if argument.starts_with(&option_arg) {
+            return Some(argument.trim_start_matches(&option_arg).trim().to_string());
+        }
+    }
+
+    debug!("Didn't find argument {}", option_arg);
+    None
+}
+
+#[allow(non_camel_case_types)]
 pub enum LimiterSignals {
     RELOAD,
     STOP,
