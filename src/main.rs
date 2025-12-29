@@ -56,7 +56,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     // --socket= argument
-    if let Some(socket) = parse_option_argument("socket") {
+    if let Some(socket) = parse_option_argument(args.clone(), "socket") {
         config.socket = socket
     }
 
@@ -239,7 +239,7 @@ async fn setup_logger(config: &Config) -> Result<(), log::SetLoggerError> {
 
 /// finds the configuration file
 async fn find_config() -> Result<PathBuf, ()> {
-    if let Some(path) = parse_option_argument("config") {
+    if let Some(path) = parse_option_argument(std::env::args().collect(), "config") {
         return Ok(PathBuf::try_from(path).unwrap_or_else(|e| {
             eprintln!("Failed to parse config path: {}", e);
             exit(1);
@@ -278,9 +278,9 @@ fn show_help(executable: String) {
     exit(0);
 }
 
-fn parse_option_argument(option: &str) -> Option<String> {
+fn parse_option_argument(args: Vec<String>, option: &str) -> Option<String> {
     let option_arg = format!("--{}=", option);
-    for argument in std::env::args().collect::<Vec<String>>() {
+    for argument in args {
         if argument.starts_with(&option_arg) {
             return Some(argument.trim_start_matches(&option_arg).trim().to_string());
         }
@@ -312,4 +312,24 @@ pub enum LimiterSignals {
     STOP,
     CONFIG,
     CLEAR_DB,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_option_argument() {
+        let args: Vec<String> = vec!["postfix_ratelimit", "--config=test.conf", "--debug"]
+            .iter()
+            .map(|a| a.to_string())
+            .collect();
+
+        assert_eq!(
+            parse_option_argument(args.clone(), "config"),
+            Some("test.conf".to_string())
+        );
+
+        assert_eq!(parse_option_argument(args, "debug"), None);
+    }
 }

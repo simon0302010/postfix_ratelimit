@@ -122,3 +122,38 @@ fn to_yes_or_no(boolean: bool) -> String {
         "No".to_string()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_config_valid() {
+        let toml_str = r#"
+           db_file = "/var/db/ratelimit.db"
+           interval = 20
+           limit = 10
+           socket = "inet:127.0.0.1:11847"
+        "#;
+
+        let config: Config = toml::from_str(&toml_str).unwrap();
+
+        assert_eq!(config.db_file, "/var/db/ratelimit.db".to_string());
+        assert_eq!(config.interval, 20);
+        assert_eq!(config.limit, 10);
+        assert_eq!(config.socket, "inet:127.0.0.1:11847".to_string());
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_config_db_missing() {
+        let toml_str = r#"
+            interval = 20
+            limit = 10
+        "#;
+
+        let config: Config = toml::from_str(&toml_str).unwrap();
+
+        assert!(config.validate().is_err());
+    }
+}
