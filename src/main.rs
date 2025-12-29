@@ -75,20 +75,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         });
     debug!("Loaded database into memory");
 
-    db_mem
-        .call(|conn| {
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS emails (
-                address TEXT NOT NULL,
-                host TEXT NOT NULL,
-                count INTEGER DEFAULT 0,
-                time INTEGER,
-                UNIQUE(address, host)
-            )",
-                [],
-            )
-        })
-        .await?;
+    create_table(db_mem.clone()).await?;
 
     // spawn clean up thread
     if config.clean_interval > 0 {
@@ -301,6 +288,22 @@ fn parse_option_argument(option: &str) -> Option<String> {
 
     debug!("Didn't find argument {}", option_arg);
     None
+}
+
+async fn create_table(conn: Connection) -> Result<usize, tokio_rusqlite::Error> {
+    conn.call(|conn| {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS emails (
+                address TEXT NOT NULL,
+                host TEXT NOT NULL,
+                count INTEGER DEFAULT 0,
+                time INTEGER,
+                UNIQUE(address, host)
+            )",
+            [],
+        )
+    })
+    .await
 }
 
 #[allow(non_camel_case_types)]

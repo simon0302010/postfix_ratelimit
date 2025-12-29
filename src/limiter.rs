@@ -369,3 +369,56 @@ enum ListenerType {
     Tcp(TcpListener),
     Unix(UnixListener),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{config::Config, create_table};
+    use tokio_rusqlite::Connection;
+
+    #[tokio::test]
+    async fn test_email_regex() {
+        let config = Config::default();
+        let conn = Connection::open_in_memory()
+            .await
+            .expect("Failed to open db in memory");
+        let limiter = Limiter::new(conn, config);
+
+        let valid = limiter
+            .email_regex(Some("Max Mustermann <max@mustermann.de>".to_string()))
+            .await;
+        assert_eq!(valid, Some("max@mustermann.de".to_string()));
+
+        let invalid = limiter
+            .email_regex(Some("Max Mustermann".to_string()))
+            .await;
+        assert_eq!(invalid, None);
+    }
+
+    #[tokio::test]
+    async fn test_allowed() {
+        let config = Config {
+            limit: 5,
+            ..Default::default()
+        };
+        let conn = Connection::open_in_memory()
+            .await
+            .expect("Failed to open db in memory");
+
+        create_table(conn.clone())
+            .await
+            .expect("Failed to create table");
+
+        let limiter = Limiter::new(conn, config);
+        let email = "max@mustermann.de".to_string();
+        let host = "host".to_string();
+
+        let (allowed, count) = limiter.allowed(email.clone(), host.clone(), 3).await;
+        assert!(allowed);
+        assert_eq!(count, 3);
+
+        let (allowed, count) = limiter.allowed(email, host, 3).await;
+        assert!(!allowed);
+        assert_eq!(count, 6);
+    }
+}
