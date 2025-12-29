@@ -26,14 +26,7 @@ A Milter for Postfix that limits the number of emails sent from a user within a 
     ```
   > Please see the [Configuration](#Configuration) section for all available options.
 
-3. Configure Postfix to use the Milter by adding the following lines to your postfix configuration file:
-    ```conf
-    # Replace "inet:localhost:12345" with the actual address and port where postfix_ratelimit is listening.
-    smtpd_milters = inet:localhost:12345
-    milter_protocol = 6
-    # To apply it to non-SMTP mail, add:
-    # non_smtpd_milters = inet:localhost:12345
-    ```
+3. See the Postfix [documentation](https://www.postfix.org/MILTER_README.html#config) for setting up the Milter in Postfix.
   
 ## Usage
 
