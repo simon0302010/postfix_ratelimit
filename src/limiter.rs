@@ -233,7 +233,7 @@ impl Limiter {
             }
 
             if allowed {
-                Status::Accept
+                Status::Continue
             } else {
                 warn!(
                     "Rejected email from {} ({}) due to rate limit being reached ({} over limit)",
@@ -420,5 +420,50 @@ mod tests {
         let (allowed, count) = limiter.allowed(email, host, 3).await;
         assert!(!allowed);
         assert_eq!(count, 6);
+    }
+
+    #[tokio::test]
+    async fn test_per_host() {
+        let mut config = Config {
+            limit: 5,
+            per_host: false,
+            ..Default::default()
+        };
+        let conn = Connection::open_in_memory()
+            .await
+            .expect("Failed to open db in memory");
+
+        create_table(conn.clone())
+            .await
+            .expect("Failed to create table");
+
+        let host_1 = "192.168.2.100".to_string();
+        let host_2 = "192.168.2.200".to_string();
+
+        // per_host off
+        let limiter = Limiter::new(conn.clone(), config.clone());
+        let email = "max@mustermann.de".to_string();
+
+        let (allowed, count) = limiter.allowed(email.clone(), host_1.clone(), 3).await;
+        assert!(allowed);
+        assert_eq!(count, 3);
+
+        let (allowed, count) = limiter.allowed(email, host_2.clone(), 3).await;
+        assert!(!allowed);
+        assert_eq!(count, 6);
+
+        // per_host on
+        config.per_host = true;
+
+        let limiter = Limiter::new(conn, config);
+        let email = "maria@mustermann.de".to_string();
+
+        let (allowed, count) = limiter.allowed(email.clone(), host_1, 3).await;
+        assert!(allowed);
+        assert_eq!(count, 3);
+
+        let (allowed, count) = limiter.allowed(email, host_2, 3).await;
+        assert!(allowed);
+        assert_eq!(count, 3);
     }
 }
