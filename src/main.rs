@@ -289,16 +289,16 @@ fn parse_option_argument(args: Vec<String>, option: &str) -> Option<String> {
     debug!("Didn't find argument {}", option_arg);
     None
 }
-
 async fn create_table(conn: Connection) -> Result<usize, tokio_rusqlite::Error> {
     conn.call(|conn| {
         conn.execute(
             "CREATE TABLE IF NOT EXISTS emails (
-                address TEXT NOT NULL,
+                email TEXT NOT NULL,
+                user TEXT DEFAULT NULL,
                 host TEXT NOT NULL,
                 count INTEGER DEFAULT 0,
                 time INTEGER,
-                UNIQUE(address, host)
+                UNIQUE(email, user, host)
             )",
             [],
         )

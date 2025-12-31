@@ -1,4 +1,4 @@
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::fs::{Permissions, set_permissions};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
@@ -26,7 +26,8 @@ pub struct Limiter {
 
 #[derive(Default, Debug)]
 struct ConnectionData {
-    sender: Option<String>,
+    email: Option<String>,
+    user: Option<String>,
     recipients: Vec<String>,
     host: String,
 }
@@ -48,7 +49,7 @@ impl Limiter {
         let limiter_connect = self.clone();
         let limiter_mail = self.clone();
         let limiter_rcpt = self.clone();
-        let limiter_eom = self.clone();
+        let limiter_eoh = self.clone();
 
         // define callbacks
         let callbacks = Callbacks::new()
@@ -64,9 +65,9 @@ impl Limiter {
                 let limiter = limiter_rcpt.clone();
                 Box::pin(async move { limiter.handle_rcpt(cx, args).await })
             })
-            .on_eom(move |cx| {
-                let limiter = limiter_eom.clone();
-                Box::pin(async move { limiter.handle_eom(cx).await })
+            .on_eoh(move |cx| {
+                let limiter = limiter_eoh.clone();
+                Box::pin(async move { limiter.handle_eoh(cx).await })
             });
 
         let config = Default::default();
@@ -142,7 +143,8 @@ impl Limiter {
         };
 
         let _ = cx.data.replace(ConnectionData {
-            sender: None,
+            email: None,
+            user: None,
             recipients: Vec::new(),
             host,
         });
@@ -169,7 +171,7 @@ impl Limiter {
             {
                 warn!(
                     "Rejected email from {} due to exceeding max recipients ({})",
-                    data.sender.clone().unwrap_or_else(|| "Unknown".to_string()),
+                    data.email.clone().unwrap_or_else(|| "Unknown".to_string()),
                     self.config.max_recipients
                 );
                 return Status::Reject;
@@ -181,28 +183,34 @@ impl Limiter {
 
     /// handles mail
     async fn handle_mail(&self, cx: &mut Context<ConnectionData>, args: Vec<CString>) -> Status {
+        if let Some(sasl_user) = cx.macros.get(c"{auth_authen}") {
+            info!("SASL User: {}", sasl_user.to_string_lossy().to_string());
+        } else {
+            warn!("Couldn't find SASL User for email");
+        }
+
         let sender = self
             .email_regex(args.first().map(|s| s.to_string_lossy().to_string()))
             .await;
 
         if let Some(data) = cx.data.as_mut() {
-            data.sender = sender;
+            data.email = sender;
             data.recipients.clear();
         }
 
         Status::Continue
     }
 
-    async fn handle_eom(&self, cx: &mut EomContext<ConnectionData>) -> Status {
+    async fn handle_eoh(&self, cx: &mut Context<ConnectionData>) -> Status {
         if let Some(data) = cx.data.as_ref() {
             debug!(
                 "Received email from {:?} to {:?} from server {}",
-                data.sender.clone().unwrap_or_default(),
+                data.email.clone().unwrap_or_default(),
                 data.recipients,
                 data.host
             );
 
-            let Some(sender) = data.sender.clone() else {
+            let Some(sender) = data.email.clone() else {
                 if self.config.reject_error {
                     return Status::Reject;
                 } else {
@@ -285,25 +293,25 @@ impl Limiter {
                 let tx = conn.transaction()?;
 
                 tx.execute(
-                    "INSERT INTO emails (address, host, count, time)
+                    "INSERT INTO emails (email, host, count, time)
                      VALUES (?1, ?2, 0, unixepoch('now'))
-                     ON CONFLICT(address, host) DO UPDATE SET
+                     ON CONFLICT(email, host) DO UPDATE SET
                         count = 0, time = unixepoch('now')
                      WHERE (unixepoch('now') - emails.time) > ?3",
                     params![email, db_host, interval_seconds],
                 )?;
 
                 tx.execute(
-                    "INSERT INTO emails (address, host, count, time)
+                    "INSERT INTO emails (email, host, count, time)
                       VALUES (?1, ?2, ?3, unixepoch('now'))
-                      ON CONFLICT(address, host) DO UPDATE SET
+                      ON CONFLICT(email, host) DO UPDATE SET
                          count = emails.count + ?3",
                     params![email, db_host, count],
                 )?;
 
                 let new_count: u64 = {
                     let mut stmt =
-                        tx.prepare("SELECT count FROM emails WHERE address = ?1 AND host = ?2")?;
+                        tx.prepare("SELECT count FROM emails WHERE email = ?1 AND host = ?2")?;
 
                     stmt.query_row(params![email, db_host], |row| row.get(0))
                         .unwrap_or(0)
@@ -340,7 +348,7 @@ async fn create_listener(socket: &str) -> ListenerType {
             exit(1);
         });
 
-        let permissions = Permissions::from_mode(0o666);
+        let permissions = Permissions::from_mode(0o660);
         if let Err(e) = set_permissions(socket_trimmed, permissions) {
             error!("Failed to set socket permissions: {}", e);
             exit(1);

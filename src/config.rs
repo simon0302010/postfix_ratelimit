@@ -27,6 +27,8 @@ pub struct Config {
     pub reject_error: bool,
     /// In which file to write the logs. Leave empty for no logging to file.
     pub log_file: String,
+    /// Enables rate limiting based on the SASL user. This requires the server to provide the auth_authen macro. If enabled, any email missing this macro will be rejected.
+    pub use_sasl: bool,
 }
 
 impl Default for Config {
@@ -43,6 +45,7 @@ impl Default for Config {
             debug: false,
             reject_error: false,
             log_file: String::new(),
+            use_sasl: false,
         }
     }
 }
