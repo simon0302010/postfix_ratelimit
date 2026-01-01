@@ -23,11 +23,11 @@ pub struct Config {
     pub clean_interval: u64,
     /// Enables Debug mode which prints extra messages to the terminal
     pub debug: bool,
-    /// Rejects Emails that encountered some kind of issue during processing. False by default.
+    /// Rejects Emails that encountered some kind of issue during processing like the sender missing. False by default.
     pub reject_error: bool,
     /// In which file to write the logs. Leave empty for no logging to file.
     pub log_file: String,
-    /// Enables rate limiting based on the SASL user. This requires the server to provide the auth_authen macro. If enabled, any email missing this macro will be rejected.
+    /// Enables rate limiting based on the SASL user. This requires the server to provide the {auth_authen} macro.
     pub use_sasl: bool,
 }
 

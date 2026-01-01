@@ -59,19 +59,21 @@ option = value
 | Option            | Type    | Default                  | Description                                                                                                                        |
 |-------------------|---------|--------------------------|------------------------------------------------------------------------------------------------------------------------------------|
 | db_file           | String  | (none, required)         | Path to the SQLite database file used for storing rate limit data. **This option must be set manually.**                            |
-| log_file          | String  | (none, required)         | File path to write logs. **This option must be set manually. Leave empty for no logging to file.**                                 |
-| socket            | String  | "inet:127.0.0.1:11847"   | Address on which the milter will listen, specified as either "inet:IP:PORT" for TCP or "unix:/path/to/socket" for Unix socket.     |
+| socket            | String  | "inet:127.0.0.1:11847"   | Address on which the milter will listen, specified as either "inet:IP:PORT" for a TCP socket or "unix:/path/to/socket" for a Unix socket. |
 | interval          | u64     | 60                       | Time window for rate limiting, specified in minutes.                                                                               |
 | limit             | u64     | 20                       | Maximum number of emails allowed to be sent within each interval.                                                                  |
-| count_recipients  | bool    | true                     | If true, each recipient counts separately towards the rate limit.                                                                  |
 | max_recipients    | u64     | 20                       | Maximum number of recipients allowed per individual email message. 0 for no limit.                                                 |
-| per_host          | bool    | false                    | If true, rate limiting is tracked separately per sender and per connecting host.                                                   |
-| clean_interval    | u64     | 120                      | Frequency, in minutes, at which expired entries are removed from the database.                                                     |
+| count_recipients  | bool    | true                     | If true, each recipient counts separately towards the rate limit, causing the limit to be reached faster with emails sent to multiple recipients. |
+| per_host          | bool    | false                    | If true, rate limiting is tracked separately per sender and per connecting host; if false, only the sender's email address is considered. |
+| use_sasl          | bool    | false                    | Enables rate limiting based on the SASL user. This requires the server to provide the {auth_authen} macro.                         |
+| clean_interval    | u64     | 120                      | Frequency, in minutes, at which expired entries are removed from the database. Does not affect ratelimiting.                       |
+| log_file          | String  | (none, optional)         | File path to write logs. Leave empty for no logging to file.                                                                       |
 | debug             | bool    | false                    | Enables Debug mode which prints extra messages to the terminal.                                                                    |
-| reject_error      | bool    | false                    | Rejects emails that encountered issues during processing.                                                              |
+| reject_error      | bool    | false                    | Rejects emails that encountered some kind of issue during processing like the sender missing. False by default.                     |
 
 ### CLI Options
 
 --config="<PATH>": Specify an configuration file path.
+--socket="<SOCKET>": Specify the socket to listen on. Same format as the config file.
 --debug: Enable debug mode.
 --help: Show help message.

@@ -273,6 +273,9 @@ fn show_help(executable: String) {
     println!();
     println!("Options:");
     println!("  --config=<path>   Specify the path to the configuration file.");
+    println!(
+        "  --socket=<SOCKET> Specify the socket to listen on. Same format as the config file."
+    );
     println!("  --debug           Enable debug logging.");
     println!("  --help            Show this help message and exit.");
     exit(0);
@@ -293,12 +296,11 @@ async fn create_table(conn: Connection) -> Result<usize, tokio_rusqlite::Error> 
     conn.call(|conn| {
         conn.execute(
             "CREATE TABLE IF NOT EXISTS emails (
-                email TEXT NOT NULL,
-                user TEXT DEFAULT NULL,
+                sender TEXT NOT NULL,
                 host TEXT NOT NULL,
                 count INTEGER DEFAULT 0,
                 time INTEGER,
-                UNIQUE(email, user, host)
+                UNIQUE(sender, host)
             )",
             [],
         )

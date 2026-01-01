@@ -1,4 +1,4 @@
-use std::ffi::{CStr, CString};
+use std::ffi::CString;
 use std::fs::{Permissions, set_permissions};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::process::{Command, exit};
 use std::{env, u64};
 
-use indymilter::{Callbacks, Context, EomContext, SocketInfo, Status};
+use indymilter::{Callbacks, Context, SocketInfo, Status};
 use log::{debug, error, info, warn};
 use regex::Regex;
 use rusqlite::params;
@@ -183,11 +183,10 @@ impl Limiter {
 
     /// handles mail
     async fn handle_mail(&self, cx: &mut Context<ConnectionData>, args: Vec<CString>) -> Status {
-        if let Some(sasl_user) = cx.macros.get(c"{auth_authen}") {
-            info!("SASL User: {}", sasl_user.to_string_lossy().to_string());
-        } else {
-            warn!("Couldn't find SASL User for email");
-        }
+        let user = cx
+            .macros
+            .get(c"{auth_authen}")
+            .map(|cstr| cstr.to_string_lossy().to_string());
 
         let sender = self
             .email_regex(args.first().map(|s| s.to_string_lossy().to_string()))
@@ -195,6 +194,7 @@ impl Limiter {
 
         if let Some(data) = cx.data.as_mut() {
             data.email = sender;
+            data.user = user;
             data.recipients.clear();
         }
 
@@ -210,14 +210,32 @@ impl Limiter {
                 data.host
             );
 
-            let Some(sender) = data.email.clone() else {
-                if self.config.reject_error {
-                    return Status::Reject;
-                } else {
-                    return Status::Continue;
+            // username if use_sasl is enabled, email otherwise
+            let sender = if self.config.use_sasl {
+                match data.user.clone() {
+                    Some(user) => user,
+                    None => {
+                        if self.config.reject_error {
+                            return Status::Reject;
+                        } else {
+                            return Status::Continue;
+                        }
+                    }
+                }
+            } else {
+                match data.email.clone() {
+                    Some(email) => email,
+                    None => {
+                        if self.config.reject_error {
+                            return Status::Reject;
+                        } else {
+                            return Status::Continue;
+                        }
+                    }
                 }
             };
 
+            // count_recipients
             let count = if data.recipients.len() > 1 && self.config.count_recipients {
                 data.recipients.len() as u64
             } else {
@@ -277,7 +295,7 @@ impl Limiter {
 
     /// check whether to allow email
     /// returns (allowed: bool, email count: u64)
-    async fn allowed(&self, email: String, host: String, count: u64) -> (bool, u64) {
+    async fn allowed(&self, sender: String, host: String, count: u64) -> (bool, u64) {
         let interval_seconds = self.config.interval * 60;
         let limit = self.config.limit;
 
@@ -293,27 +311,27 @@ impl Limiter {
                 let tx = conn.transaction()?;
 
                 tx.execute(
-                    "INSERT INTO emails (email, host, count, time)
+                    "INSERT INTO emails (sender, host, count, time)
                      VALUES (?1, ?2, 0, unixepoch('now'))
-                     ON CONFLICT(email, host) DO UPDATE SET
+                     ON CONFLICT(sender, host) DO UPDATE SET
                         count = 0, time = unixepoch('now')
                      WHERE (unixepoch('now') - emails.time) > ?3",
-                    params![email, db_host, interval_seconds],
+                    params![sender, db_host, interval_seconds],
                 )?;
 
                 tx.execute(
-                    "INSERT INTO emails (email, host, count, time)
+                    "INSERT INTO emails (sender, host, count, time)
                       VALUES (?1, ?2, ?3, unixepoch('now'))
-                      ON CONFLICT(email, host) DO UPDATE SET
+                      ON CONFLICT(sender, host) DO UPDATE SET
                          count = emails.count + ?3",
-                    params![email, db_host, count],
+                    params![sender, db_host, count],
                 )?;
 
                 let new_count: u64 = {
                     let mut stmt =
-                        tx.prepare("SELECT count FROM emails WHERE email = ?1 AND host = ?2")?;
+                        tx.prepare("SELECT count FROM emails WHERE sender = ?1 AND host = ?2")?;
 
-                    stmt.query_row(params![email, db_host], |row| row.get(0))
+                    stmt.query_row(params![sender, db_host], |row| row.get(0))
                         .unwrap_or(0)
                 };
 
@@ -322,7 +340,7 @@ impl Limiter {
                 if new_count != 0 && new_count <= limit {
                     debug!(
                         "Allowing Mail sent by {} from host {} with a current count of {}",
-                        email, host, new_count
+                        sender, host, new_count
                     );
                 }
 

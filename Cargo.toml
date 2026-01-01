@@ -18,3 +18,4 @@ indymilter = "0.3"
 tokio = { version = "1.48", features = ["macros", "rt-multi-thread"] }
 tokio-rusqlite = "0.7"
 regex = "1.12"
+daemonize = "0.5"
