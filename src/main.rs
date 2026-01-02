@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Ok(path) => path,
         Err(()) => {
             eprintln!(
-                "Error: Config file not found. Use --config=<path> to specify or see the documentation for possible locations.",
+                "[ERROR] Config file not found. Use --config=<path> to specify or see the documentation for possible locations.",
             );
             exit(1);
         }
@@ -50,7 +50,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     ) {
         Ok(cfg) => cfg,
         Err(e) => {
-            eprintln!("Failed to parse configuration file:\n{}", e);
+            eprintln!("[ERROR] Failed to parse configuration file:\n{}", e);
             exit(1);
         }
     };
@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     setup_logger(&config).await.unwrap_or_else(|e| {
-        eprintln!("Failed to initialize logger: {}", e);
+        eprintln!("[ERROR] Failed to initialize logger: {}", e);
         exit(1);
     });
 
@@ -225,13 +225,14 @@ async fn setup_logger(config: &Config) -> Result<(), log::SetLoggerError> {
             }
             Err(e) => {
                 eprintln!(
-                    "Failed to create log file: ({}). Only logging to console.",
+                    "[ERROR] Failed to create log file: ({}). Only logging to console.",
                     e
                 );
             }
         }
+        println!("[INFO] Logging to {}", config.log_file);
     } else {
-        println!("Not logging to file")
+        println!("[WARN] Not logging to file");
     }
 
     logger.apply()
@@ -241,12 +242,13 @@ async fn setup_logger(config: &Config) -> Result<(), log::SetLoggerError> {
 async fn find_config() -> Result<PathBuf, ()> {
     if let Some(path) = parse_option_argument(std::env::args().collect(), "config") {
         return Ok(PathBuf::try_from(path).unwrap_or_else(|e| {
-            eprintln!("Failed to parse config path: {}", e);
+            eprintln!("[ERROR] Failed to parse config path: {}", e);
             exit(1);
         }));
     }
 
     let paths = vec![
+        CONFIG_NAME.to_string(),
         format!("/etc/{}", CONFIG_NAME),
         format!("/usr/local/etc/{}", CONFIG_NAME),
     ];

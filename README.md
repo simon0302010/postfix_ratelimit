@@ -54,6 +54,12 @@ You can configure options like this:
 option = value
 ```
 
+Possible locations for the configuration file are:
+- `/etc/postfix_ratelimit.conf`
+- `/usr/local/etc/postfix_ratelimit.conf`
+- The current working directory
+- A custom path specified with the `--config` CLI option
+
 ### Options
 
 | Option            | Type    | Default                  | Description                                                                                                                        |

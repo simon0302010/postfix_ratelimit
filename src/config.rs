@@ -60,7 +60,7 @@ impl Config {
             }
             Err(_) => {
                 eprintln!(
-                    "Error: Config file not found at '{}'. Use --config=<path> to specify.",
+                    "[ERROR] Config file not found at '{}'. Use --config=<path> to specify.",
                     path
                 );
                 exit(1);
